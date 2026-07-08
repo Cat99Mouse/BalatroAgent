@@ -31,9 +31,7 @@ def _render_counts(
 ) -> list[dict[str, int | str]]:
     """Render ordered non-zero count items."""
     return [
-        {"name": key, "count": counts[key]}
-        for key in order
-        if counts.get(key, 0) > 0
+        {"name": key, "count": counts[key]} for key in order if counts.get(key, 0) > 0
     ]
 
 
@@ -50,8 +48,7 @@ def _render_rank_suit_counts(counts: dict[str, dict[str, int]]) -> list[dict[str
                 "rank": rank,
                 "total": total,
                 "suits": [
-                    {"name": suit, "count": suit_counts[suit]}
-                    for suit in SUIT_ORDER
+                    {"name": suit, "count": suit_counts[suit]} for suit in SUIT_ORDER
                 ],
             }
         )

@@ -33,8 +33,7 @@ class BalatroInstance(_BalatroInstance):
                     response = await client.post(url, json=payload)
                     if response.status_code != 200:
                         last_error = (
-                            f"HTTP {response.status_code}: "
-                            f"{response.text[:300]!r}"
+                            f"HTTP {response.status_code}: {response.text[:300]!r}"
                         )
                         await asyncio.sleep(0.5)
                         continue

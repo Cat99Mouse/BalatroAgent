@@ -349,9 +349,7 @@ class Bot:
         function_obj = getattr(tool_call, "function", tool_call)
         return getattr(function_obj, "name", None)
 
-    def _assistant_tool_call_message(
-        self, response: ChatCompletion
-    ) -> dict[str, Any]:
+    def _assistant_tool_call_message(self, response: ChatCompletion) -> dict[str, Any]:
         message = response.choices[0].message
         tool_calls = getattr(message, "tool_calls", None) or []
         return {

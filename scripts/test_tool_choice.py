@@ -14,7 +14,6 @@ from openai import APIStatusError, AsyncOpenAI
 
 from balatrollm.config import Config, get_model_config
 
-
 TEST_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {

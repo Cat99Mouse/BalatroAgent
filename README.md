@@ -6,7 +6,7 @@
 
 ---
 
-Languages: [English](#english) | [中文](#中文)
+Languages: [English](#english) | [中文](#%E4%B8%AD%E6%96%87)
 
 ## English
 
@@ -22,25 +22,25 @@ debugging and review.
 - Runs an LLM-controlled Balatro bot from the `balatrollm` CLI.
 - Starts and manages one or more Balatro instances through `balatrobot`.
 - Supports OpenAI-compatible providers such as OpenRouter, OpenAI, local
-  inference gateways, or any endpoint that supports chat completions with tool
-  calling.
+    inference gateways, or any endpoint that supports chat completions with tool
+    calling.
 - Generates task batches from model, seed, deck, stake, and strategy
-  combinations.
+    combinations.
 - Uses strategy folders made of Jinja prompt templates and JSON tool
-  definitions.
+    definitions.
 - Records run artifacts under `runs/`, including requests, responses, game
-  states, screenshots, logs, and final statistics.
+    states, screenshots, logs, and final statistics.
 - Provides optional local views for inspecting the latest run.
 
 ### Requirements
 
 - Balatro installed locally.
 - BalatroBot installed and working. `balatrollm` uses the BalatroBot API to
-  start instances and execute game actions.
+    start instances and execute game actions.
 - `uv` for Python environment and dependency management.
 - An LLM model that supports tool/function calling.
 - Python 3.13 or newer. `uv sync` can install the required Python version
-  automatically.
+    automatically.
 
 ### Quick Start
 
@@ -105,19 +105,19 @@ uv run balatrollm
 
 Common options:
 
-| Option | Environment Variable | Default | Purpose |
-| --- | --- | --- | --- |
-| `--model` | `BALATROLLM_MODEL` | required | LLM model name |
-| `--seed` | `BALATROLLM_SEED` | `AAAAAAA` | Balatro seed |
-| `--deck` | `BALATROLLM_DECK` | `RED` | Deck code |
-| `--stake` | `BALATROLLM_STAKE` | `WHITE` | Stake code |
-| `--strategy` | `BALATROLLM_STRATEGY` | `default` | Strategy folder |
-| `--parallel` | `BALATROLLM_PARALLEL` | `1` | Concurrent Balatro instances |
-| `--host` | `BALATROLLM_HOST` | `127.0.0.1` | BalatroBot host |
-| `--port` | `BALATROLLM_PORT` | `12346` | First BalatroBot port |
-| `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter | LLM API base URL |
-| `--api-key` | `BALATROLLM_API_KEY` | unset | LLM API key |
-| `--views` | `BALATROLLM_VIEWS` | `0` | Start local views server |
+| Option       | Environment Variable  | Default     | Purpose                      |
+| ------------ | --------------------- | ----------- | ---------------------------- |
+| `--model`    | `BALATROLLM_MODEL`    | required    | LLM model name               |
+| `--seed`     | `BALATROLLM_SEED`     | `AAAAAAA`   | Balatro seed                 |
+| `--deck`     | `BALATROLLM_DECK`     | `RED`       | Deck code                    |
+| `--stake`    | `BALATROLLM_STAKE`    | `WHITE`     | Stake code                   |
+| `--strategy` | `BALATROLLM_STRATEGY` | `default`   | Strategy folder              |
+| `--parallel` | `BALATROLLM_PARALLEL` | `1`         | Concurrent Balatro instances |
+| `--host`     | `BALATROLLM_HOST`     | `127.0.0.1` | BalatroBot host              |
+| `--port`     | `BALATROLLM_PORT`     | `12346`     | First BalatroBot port        |
+| `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter  | LLM API base URL             |
+| `--api-key`  | `BALATROLLM_API_KEY`  | unset       | LLM API key                  |
+| `--views`    | `BALATROLLM_VIEWS`    | `0`         | Start local views server     |
 
 Multiple values are supported for `model`, `seed`, `deck`, `stake`, and
 `strategy`. The agent creates the cartesian product of those values:
@@ -286,19 +286,19 @@ uv run balatrollm
 
 常用参数：
 
-| 参数 | 环境变量 | 默认值 | 作用 |
-| --- | --- | --- | --- |
-| `--model` | `BALATROLLM_MODEL` | 必填 | LLM 模型名 |
-| `--seed` | `BALATROLLM_SEED` | `AAAAAAA` | 游戏种子 |
-| `--deck` | `BALATROLLM_DECK` | `RED` | 牌组代码 |
-| `--stake` | `BALATROLLM_STAKE` | `WHITE` | 难度代码 |
-| `--strategy` | `BALATROLLM_STRATEGY` | `default` | 策略目录 |
-| `--parallel` | `BALATROLLM_PARALLEL` | `1` | 并发游戏实例数 |
-| `--host` | `BALATROLLM_HOST` | `127.0.0.1` | BalatroBot 地址 |
-| `--port` | `BALATROLLM_PORT` | `12346` | 起始端口 |
-| `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter | LLM API 地址 |
-| `--api-key` | `BALATROLLM_API_KEY` | 未设置 | LLM API key |
-| `--views` | `BALATROLLM_VIEWS` | `0` | 启动本地 views 服务 |
+| 参数         | 环境变量              | 默认值      | 作用                |
+| ------------ | --------------------- | ----------- | ------------------- |
+| `--model`    | `BALATROLLM_MODEL`    | 必填        | LLM 模型名          |
+| `--seed`     | `BALATROLLM_SEED`     | `AAAAAAA`   | 游戏种子            |
+| `--deck`     | `BALATROLLM_DECK`     | `RED`       | 牌组代码            |
+| `--stake`    | `BALATROLLM_STAKE`    | `WHITE`     | 难度代码            |
+| `--strategy` | `BALATROLLM_STRATEGY` | `default`   | 策略目录            |
+| `--parallel` | `BALATROLLM_PARALLEL` | `1`         | 并发游戏实例数      |
+| `--host`     | `BALATROLLM_HOST`     | `127.0.0.1` | BalatroBot 地址     |
+| `--port`     | `BALATROLLM_PORT`     | `12346`     | 起始端口            |
+| `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter  | LLM API 地址        |
+| `--api-key`  | `BALATROLLM_API_KEY`  | 未设置      | LLM API key         |
+| `--views`    | `BALATROLLM_VIEWS`    | `0`         | 启动本地 views 服务 |
 
 `model`、`seed`、`deck`、`stake`、`strategy` 都支持多个值，程序会生成笛卡尔积任务：
 
