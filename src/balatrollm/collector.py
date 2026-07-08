@@ -151,7 +151,7 @@ class Collector:
     """Manages run data collection."""
 
     # Class constant for max failures (used by views overlay)
-    MAX_CONSECUTIVE_FAILURES = 3
+    MAX_CONSECUTIVE_FAILURES = 5
 
     def __init__(self, task: Task, base_dir: Path) -> None:
         # Create save directories

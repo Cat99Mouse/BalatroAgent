@@ -1,0 +1,62 @@
+大改动：
+1. 拆分 buy 的 schema，并在执行层做映射。
+  原因：GPT 系列模型会倾向于把所有 optional integer 字段都补出来，并用 0 或其他占位值作为默认值，导致工具执行层拒绝，而不是模型本身不会玩游戏。
+  处理方式：
+  - 原工具：buy，内部同时包含 card / voucher / pack 三个 optional integer 字段。
+  - 新工具：buy_card / buy_voucher / buy_pack。
+  - 执行层仍然映射回 BalatroBot 原生 buy 方法，只向 BalatroBot 传一个目标字段。
+  - 同步更新 default / aggressive / conservative 三个内置策略。
+
+2. 拆分 sell 的 schema，并在执行层做映射。
+  原因：gpt-5.4-mini 在商店中多次调用 sell 时，同时传入 joker 和 consumable，例如 {"joker": 2, "consumable": 0}，BalatroBot 返回 BAD_REQUEST: Can only sell one item at a time，最终触发 consecutive_failed_calls。
+  处理方式：
+  - 原工具：sell，内部同时包含 joker / consumable 两个 optional integer 字段。
+  - 新工具：sell_joker / sell_consumable。
+  - 执行层仍然映射回 BalatroBot 原生 sell 方法，只向 BalatroBot 传一个目标字段。
+  - 保守策略中保留“不要轻易卖 Joker”的提示，但工具形态也改为拆分后的两个函数。
+
+3. 增加剩余牌堆统计。
+  - 显示剩余牌数量。
+  - 显示花色统计。
+  - 显示点数统计。
+  - 显示点数 x 花色的完整聚合组成。
+  - 不暴露牌堆顺序，也不暴露下一张牌。
+
+4. 增加 LLM 侧 score_candidates 观察工具循环。
+  - 仅在 SELECTING_HAND 阶段动态加入 score_candidates 工具。
+  - 模型可先调用 score_candidates 比较候选出牌。
+  - Python 侧调用 BalatroBot 的只读 score_candidates endpoint 获取 Lua/Balatro 内部 preview。
+  - Lua 返回的是 hand preview / base preview，不称为最终得分，也不承诺完整 Joker 结算。
+  - 观察结果只作为同一轮 Chat Completions tool result 返回给模型。
+  - 不写入 MEMORY，不进入历史 action 列表，不污染后续回合的 strategy/gamestate/memory 提示词。
+  - 每轮最多允许 2 次观察调用，之后移除观察工具，只保留执行工具。
+
+小改动：
+1. 将连续失败阈值从 3 次提高到 5 次。
+2. 配置文件读取固定为 UTF-8，避免 local.yaml 中文注释在 Windows GBK 环境下报错。
+3. 本地 BalatroBot HTTP 请求禁用环境代理，避免 127.0.0.1 被代理干扰。
+4. 启动健康检查更稳健：
+  - 非 JSON / 空响应 / HTTP 临时错误继续重试。
+  - 记录最后一次失败原因。
+5. 截图失败不再中断整局游戏。
+6. 新增 scripts/test_tool_choice.py，用于测试 tool_choice=auto / required / require 的兼容性。
+7. 在 prompt 中弱化剩余牌堆统计的决策权重。
+  - 剩余牌堆组成只作为辅助信息。
+  - 打盲注时优先安全超过当前目标分，不要为了追未来点数或花色牺牲当前即时得分。
+  - 同步更新 default / aggressive / conservative 三个内置策略。
+8. 增加额外出牌计分提醒，并轻微鼓励使用 score_candidates。
+  - 明确额外打出的牌如果不是 scoring cards，只是循环 / 弃掉。
+  - 不要把额外牌的点数，或 Scary Face / Even Steven 等计分牌效果，计入估分。
+  - 当牌型、计分牌或估分不确定时，可以在 score_candidates 可用时先比较候选出牌。
+  - 这只是提醒，不强制调用观察工具，也不替模型决策。
+9. 在工具 schema 层面约束 play / discard 的 cards 参数。
+  - 为 play.cards 和 discard.cards 增加 minItems=1、maxItems=5。
+  - 当前 LLM API 不支持 uniqueItems，因此“不要重复牌索引”保留在 description 文本提醒中。
+  - 目的是减少模型传入 8 张牌或重复牌索引的概率。
+  - 未增加执行前轻量校验；如果模型仍传错，继续由 BalatroBot 执行后返回错误信息。
+10. 拆分 rearrange 的 schema，并在执行层做映射。
+  - 原工具：rearrange，内部同时包含 hand / jokers / consumables 三个 optional array 字段，且只强制 reasoning，模型可能只传 reasoning。
+  - 新工具：rearrange_hand / rearrange_jokers / rearrange_consumables。
+  - 每个新工具都要求提供对应的目标数组和 reasoning。
+  - 执行层仍然映射回 BalatroBot 原生 rearrange 方法，只向 BalatroBot 传一个目标字段。
+  - 同步更新 default / aggressive / conservative 三个内置策略。

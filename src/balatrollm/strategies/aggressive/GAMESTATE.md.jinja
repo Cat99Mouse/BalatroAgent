@@ -25,6 +25,19 @@
 - **Stake**: {{ G.stake }}
 {% if G.seed %}- **Seed**: {{ G.seed }}{% endif %}
 
+{% if D %}
+## Remaining Draw Deck Summary
+
+This is aggregated composition only; draw order is not shown.
+Use remaining-deck composition only as auxiliary context. When playing a blind, prioritize safely beating the current target score; do not sacrifice immediate scoring just to chase future ranks or suits.
+- **Cards remaining**: {{ D.count }}{% if D.limit is not none %}/{{ D.limit }}{% endif %}
+- **Suits**: {% if D.suits %}{% for item in D.suits %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}
+- **Ranks**: {% if D.ranks %}{% for item in D.ranks %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}
+{% if D.composition %}- **Rank-suit composition**:
+{% for row in D.composition %}  - {{ row.rank }}: {% for item in row.suits %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}
+{% endfor %}{% endif %}
+{% endif %}
+
 ## Jokers
 
 The current Jokers count is {{ G.jokers.count }}/{{ G.jokers.limit }}.
@@ -97,6 +110,8 @@ Here is a list of the poker hands and their levels:
 
 The current card count is {{ G.hand.count }} / {{ G.hand.limit }}
 **CRITICAL LIMIT: You can play or discard MAXIMUM {{ G.hand.highlighted_limit }} cards per action - NEVER MORE THAN {{ G.hand.highlighted_limit }} CARDS (this is an absolute game rule).**
+**SCORING REMINDER**: Extra played cards that are not part of the recognized poker hand are only cycled/discarded. Do not count their chips or card-scoring effects, such as Scary Face or Even Steven, unless they are scoring cards.
+**PREVIEW REMINDER**: If the hand type, scoring cards, or score estimate is uncertain, you may call `score_candidates` when available to compare candidate plays before choosing play or discard.
 
 {% for c in G.hand.cards %}
 {%- if not c.state.hidden %}
@@ -121,6 +136,7 @@ The current card count is {{ G.hand.count }} / {{ G.hand.limit }}
 - {{ loop.index0 }}: the card is face down
 {%- endif %}
 {%- endfor %}
+
 {%- endif %}
 
 {% if G.state == "SHOP" -%}
@@ -272,19 +288,35 @@ You **MUST** use one of the following tools to perform the intended action:
   - Parameters:
     - `cards`: (list) 0-based indices of cards to discard
     - `reasoning`: (string) Strategic reasoning for discarding these cards
-- Rearrange cards in hand, jokers, or consumables
-  - Function: `rearrange`
-  - Parameters (provide exactly one of):
+- Rearrange hand cards
+  - Function: `rearrange_hand`
+  - Parameters:
     - `hand`: (list) New order of hand cards (0-based indices, must include all cards)
+    - `reasoning`: (string) Strategic reasoning for this arrangement
+- Rearrange jokers
+  - Function: `rearrange_jokers`
+  - Parameters:
     - `jokers`: (list) New order of jokers (0-based indices, must include all jokers)
+    - `reasoning`: (string) Strategic reasoning for this arrangement
+- Rearrange consumables
+  - Function: `rearrange_consumables`
+  - Parameters:
     - `consumables`: (list) New order of consumables (0-based indices, must include all consumables)
     - `reasoning`: (string) Strategic reasoning for this arrangement
 {% elif G.state == "SHOP" -%}
-- Buy a card, voucher, or pack from the shop
-  - Function: `buy`
-  - Parameters (provide exactly one of):
+- Buy a shop card
+  - Function: `buy_card`
+  - Parameters:
     - `card`: (integer) 0-based index of shop card to buy
+    - `reasoning`: (string) Strategic reasoning for this purchase
+- Buy a voucher
+  - Function: `buy_voucher`
+  - Parameters:
     - `voucher`: (integer) 0-based index of voucher to buy
+    - `reasoning`: (string) Strategic reasoning for this purchase
+- Buy and open a booster pack
+  - Function: `buy_pack`
+  - Parameters:
     - `pack`: (integer) 0-based index of booster pack to buy and open
     - `reasoning`: (string) Strategic reasoning for this purchase
 - Reroll the shop items
@@ -295,10 +327,14 @@ You **MUST** use one of the following tools to perform the intended action:
   - Function: `next_round`
   - Parameters:
     - `reasoning`: (string) Strategic reasoning for leaving the shop
-- Rearrange jokers or consumables
-  - Function: `rearrange`
-  - Parameters (provide exactly one of):
+- Rearrange jokers
+  - Function: `rearrange_jokers`
+  - Parameters:
     - `jokers`: (list) New order of jokers (0-based indices, must include all jokers)
+    - `reasoning`: (string) Strategic reasoning for this arrangement
+- Rearrange consumables
+  - Function: `rearrange_consumables`
+  - Parameters:
     - `consumables`: (list) New order of consumables (0-based indices, must include all consumables)
     - `reasoning`: (string) Strategic reasoning for this arrangement
 {% elif G.state == "BLIND_SELECT" -%}
@@ -320,10 +356,14 @@ You **MUST** use one of the following tools to perform the intended action:
     - `reasoning`: (string) Strategic reasoning for this selection or skip
 {% endif -%}
 {% if G.state in ["SELECTING_HAND", "SHOP"] -%}
-- Sell a joker or consumable for money
-  - Function: `sell`
-  - Parameters (provide exactly one of):
+- Sell a joker for money
+  - Function: `sell_joker`
+  - Parameters:
     - `joker`: (integer) 0-based index of joker to sell
+    - `reasoning`: (string) Strategic reasoning for selling
+- Sell a consumable for money
+  - Function: `sell_consumable`
+  - Parameters:
     - `consumable`: (integer) 0-based index of consumable to sell
     - `reasoning`: (string) Strategic reasoning for selling
 - Use a consumable card (Tarot, Planet, or Spectral)

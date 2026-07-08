@@ -122,7 +122,7 @@ def _load_from_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
 
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
     result: dict[str, Any] = {}

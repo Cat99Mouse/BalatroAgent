@@ -12,7 +12,9 @@
             "cards": {
               "type": "array",
               "items": {"type": "integer"},
-              "description": "0-based indices of cards to play (1-5 cards)"
+              "minItems": 1,
+              "maxItems": 5,
+              "description": "0-based indices of cards to play (1-5 unique cards)"
             },
             "reasoning": {
               "type": "string",
@@ -35,7 +37,9 @@
             "cards": {
               "type": "array",
               "items": {"type": "integer"},
-              "description": "0-based indices of cards to discard"
+              "minItems": 1,
+              "maxItems": 5,
+              "description": "0-based indices of cards to discard (1-5 unique cards)"
             },
             "reasoning": {
               "type": "string",
@@ -49,9 +53,9 @@
     {
       "type": "function",
       "function": {
-        "name": "rearrange",
+        "name": "rearrange_hand",
         "strict": false,
-        "description": "Rearrange cards in hand, jokers, or consumables. Provide exactly one of: hand, jokers, or consumables.",
+        "description": "Rearrange cards in hand.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -60,11 +64,47 @@
               "items": {"type": "integer"},
               "description": "New order of hand cards (permutation of current indices)"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for this arrangement"
+            }
+          },
+          "required": ["hand", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "rearrange_jokers",
+        "strict": false,
+        "description": "Rearrange jokers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "jokers": {
               "type": "array",
               "items": {"type": "integer"},
               "description": "New order of jokers"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for this arrangement"
+            }
+          },
+          "required": ["jokers", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "rearrange_consumables",
+        "strict": false,
+        "description": "Rearrange consumables.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "consumables": {
               "type": "array",
               "items": {"type": "integer"},
@@ -75,16 +115,16 @@
               "description": "Strategic reasoning for this arrangement"
             }
           },
-          "required": ["reasoning"]
+          "required": ["consumables", "reasoning"]
         }
       }
     },
     {
       "type": "function",
       "function": {
-        "name": "sell",
+        "name": "sell_joker",
         "strict": false,
-        "description": "Sell a joker or consumable for money. Provide exactly one of: joker or consumable. WARNING: Selling jokers is strongly discouraged in conservative strategy.",
+        "description": "Sell one joker for money. WARNING: Selling jokers is strongly discouraged in conservative strategy.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -92,6 +132,24 @@
               "type": "integer",
               "description": "0-based index of joker to sell"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for selling"
+            }
+          },
+          "required": ["joker", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sell_consumable",
+        "strict": false,
+        "description": "Sell one consumable for money.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "consumable": {
               "type": "integer",
               "description": "0-based index of consumable to sell"
@@ -101,7 +159,7 @@
               "description": "Strategic reasoning for selling"
             }
           },
-          "required": ["reasoning"]
+          "required": ["consumable", "reasoning"]
         }
       }
     },
@@ -137,9 +195,9 @@
     {
       "type": "function",
       "function": {
-        "name": "buy",
+        "name": "buy_card",
         "strict": false,
-        "description": "Buy a card, voucher, or pack from the shop. Provide exactly one of: card, voucher, or pack. Ensure purchase does not drop money below $25 after Ante 2.",
+        "description": "Buy one shop card. Ensure purchase does not drop money below $25 after Ante 2.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -147,10 +205,46 @@
               "type": "integer",
               "description": "0-based index of card to buy"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for this purchase"
+            }
+          },
+          "required": ["card", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "buy_voucher",
+        "strict": false,
+        "description": "Buy one voucher from the shop. Ensure purchase does not drop money below $25 after Ante 2.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "voucher": {
               "type": "integer",
               "description": "0-based index of voucher to buy"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for this purchase"
+            }
+          },
+          "required": ["voucher", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "buy_pack",
+        "strict": false,
+        "description": "Buy and open one booster pack from the shop. Ensure purchase does not drop money below $25 after Ante 2.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "pack": {
               "type": "integer",
               "description": "0-based index of booster pack to buy and open"
@@ -160,7 +254,7 @@
               "description": "Strategic reasoning for this purchase"
             }
           },
-          "required": ["reasoning"]
+          "required": ["pack", "reasoning"]
         }
       }
     },
@@ -203,9 +297,9 @@
     {
       "type": "function",
       "function": {
-        "name": "sell",
+        "name": "sell_joker",
         "strict": false,
-        "description": "Sell a joker or consumable for money. Provide exactly one of: joker or consumable. WARNING: Selling jokers is strongly discouraged in conservative strategy.",
+        "description": "Sell one joker for money. WARNING: Selling jokers is strongly discouraged in conservative strategy.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -213,6 +307,24 @@
               "type": "integer",
               "description": "0-based index of joker to sell"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for selling"
+            }
+          },
+          "required": ["joker", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sell_consumable",
+        "strict": false,
+        "description": "Sell one consumable for money.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "consumable": {
               "type": "integer",
               "description": "0-based index of consumable to sell"
@@ -222,7 +334,7 @@
               "description": "Strategic reasoning for selling"
             }
           },
-          "required": ["reasoning"]
+          "required": ["consumable", "reasoning"]
         }
       }
     },
@@ -256,9 +368,9 @@
     {
       "type": "function",
       "function": {
-        "name": "rearrange",
+        "name": "rearrange_jokers",
         "strict": false,
-        "description": "Rearrange jokers or consumables. Provide exactly one of: jokers or consumables.",
+        "description": "Rearrange jokers.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -267,6 +379,24 @@
               "items": {"type": "integer"},
               "description": "New order of jokers"
             },
+            "reasoning": {
+              "type": "string",
+              "description": "Strategic reasoning for this arrangement"
+            }
+          },
+          "required": ["jokers", "reasoning"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "rearrange_consumables",
+        "strict": false,
+        "description": "Rearrange consumables.",
+        "parameters": {
+          "type": "object",
+          "properties": {
             "consumables": {
               "type": "array",
               "items": {"type": "integer"},
@@ -277,7 +407,7 @@
               "description": "Strategic reasoning for this arrangement"
             }
           },
-          "required": ["reasoning"]
+          "required": ["consumables", "reasoning"]
         }
       }
     }

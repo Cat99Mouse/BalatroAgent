@@ -2,7 +2,7 @@
 
 import pytest
 
-from balatrollm.strategy import StrategyManager
+from balatrollm.strategy import StrategyManager, _deck_summary
 from tests.unit.conftest import load_unit_fixture, load_unit_golden
 
 
@@ -41,7 +41,8 @@ class TestStrategyManagerGetTools:
         assert "play" in tool_names
         assert "discard" in tool_names
         assert "rearrange" in tool_names
-        assert "sell" in tool_names
+        assert "sell_joker" in tool_names
+        assert "sell_consumable" in tool_names
         assert "use" in tool_names
 
     def test_get_tools_shop(self) -> None:
@@ -49,10 +50,13 @@ class TestStrategyManagerGetTools:
         sm = StrategyManager("default")
         tools = sm.get_tools("SHOP")
         tool_names = [t["function"]["name"] for t in tools]
-        assert "buy" in tool_names
+        assert "buy_card" in tool_names
+        assert "buy_voucher" in tool_names
+        assert "buy_pack" in tool_names
         assert "reroll" in tool_names
         assert "next_round" in tool_names
-        assert "sell" in tool_names
+        assert "sell_joker" in tool_names
+        assert "sell_consumable" in tool_names
         assert "use" in tool_names
         assert "rearrange" in tool_names
 
@@ -124,6 +128,115 @@ class TestRenderMemoryGolden:
 
 class TestRenderGamestateProperties:
     """Property tests: verify semantic correctness of rendered output."""
+
+    def test_remaining_deck_summary_rendered_without_card_order(self) -> None:
+        """Property: deck observations are aggregate only."""
+        gamestate = {
+            "state": "BLIND_SELECT",
+            "round_num": 1,
+            "ante_num": 1,
+            "money": 4,
+            "deck": "RED",
+            "stake": "WHITE",
+            "seed": "TEST123",
+            "jokers": {"count": 0, "limit": 5, "cards": []},
+            "consumables": {"count": 0, "limit": 2, "cards": []},
+            "used_vouchers": {},
+            "hands": {},
+            "blinds": {
+                "small": {
+                    "name": "Small Blind",
+                    "status": "CURRENT",
+                    "score": 300,
+                    "tag_name": None,
+                    "tag_effect": None,
+                },
+                "big": {
+                    "name": "Big Blind",
+                    "status": "UPCOMING",
+                    "score": 450,
+                    "tag_name": None,
+                    "tag_effect": None,
+                },
+                "boss": {
+                    "name": "The Hook",
+                    "status": "UPCOMING",
+                    "score": 600,
+                    "effect": "Discards 2 random cards per hand",
+                },
+            },
+            "cards": {
+                "count": 3,
+                "limit": 52,
+                "cards": [
+                    {"key": "S_A", "value": {"suit": "S", "rank": "A"}},
+                    {"key": "H_A", "value": {"suit": "H", "rank": "A"}},
+                    {"key": "D_9", "value": {"suit": "D", "rank": "9"}},
+                ],
+            },
+        }
+        sm = StrategyManager("default")
+
+        result = sm.render_gamestate(gamestate)
+
+        assert "Remaining Draw Deck Summary" in result
+        assert "- **Cards remaining**: 3/52" in result
+        assert "- **Suits**: S=1, H=1, D=1" in result
+        assert "- **Ranks**: A=2, 9=1" in result
+        assert "- **Rank-suit composition**:" in result
+        assert "  - A: S=1, H=1, C=0, D=0" in result
+        assert "  - 9: S=0, H=0, C=0, D=1" in result
+        assert "S_A" not in result
+        assert "H_A" not in result
+        assert "D_9" not in result
+
+    def test_deck_summary_omits_raw_card_list(self) -> None:
+        """Property: computed summary does not expose ordered card entries."""
+        gamestate = {
+            "cards": {
+                "count": 2,
+                "cards": [
+                    {"key": "S_A", "value": {"suit": "S", "rank": "A"}},
+                    {"key": "C_K", "value": {"suit": "C", "rank": "K"}},
+                ],
+            }
+        }
+
+        summary = _deck_summary(gamestate)
+
+        assert summary is not None
+        assert summary["count"] == 2
+        assert summary["suits"] == [
+            {"name": "S", "count": 1},
+            {"name": "C", "count": 1},
+        ]
+        assert summary["ranks"] == [
+            {"name": "A", "count": 1},
+            {"name": "K", "count": 1},
+        ]
+        assert summary["composition"] == [
+            {
+                "rank": "A",
+                "total": 1,
+                "suits": [
+                    {"name": "S", "count": 1},
+                    {"name": "H", "count": 0},
+                    {"name": "C", "count": 0},
+                    {"name": "D", "count": 0},
+                ],
+            },
+            {
+                "rank": "K",
+                "total": 1,
+                "suits": [
+                    {"name": "S", "count": 0},
+                    {"name": "H", "count": 0},
+                    {"name": "C", "count": 1},
+                    {"name": "D", "count": 0},
+                ],
+            },
+        ]
+        assert "cards" not in summary
 
     def test_state_name_appears_in_output(self) -> None:
         """Property: the state name must appear in rendered output."""
@@ -251,17 +364,39 @@ class TestToolDefinitionStructure:
         assert "cards" in required
         assert "reasoning" in required
 
-    def test_buy_tool_has_optional_params(self) -> None:
-        """Verify buy tool has card/voucher/pack as optional parameters."""
+    def test_buy_tools_have_required_params(self) -> None:
+        """Verify split buy tools each require their purchase index."""
         sm = StrategyManager("default")
         tools = sm.get_tools("SHOP")
 
-        buy_tool = next(t for t in tools if t["function"]["name"] == "buy")
-        params = buy_tool["function"]["parameters"]["properties"]
-        required = buy_tool["function"]["parameters"]["required"]
+        expected = {
+            "buy_card": "card",
+            "buy_voucher": "voucher",
+            "buy_pack": "pack",
+        }
+        for tool_name, param_name in expected.items():
+            buy_tool = next(t for t in tools if t["function"]["name"] == tool_name)
+            params = buy_tool["function"]["parameters"]["properties"]
+            required = buy_tool["function"]["parameters"]["required"]
 
-        assert "card" in params or "voucher" in params or "pack" in params
-        assert "reasoning" in required
-        assert "card" not in required
-        assert "voucher" not in required
-        assert "pack" not in required
+            assert param_name in params
+            assert param_name in required
+            assert "reasoning" in required
+
+    def test_sell_tools_have_required_params(self) -> None:
+        """Verify split sell tools each require their sell index."""
+        sm = StrategyManager("default")
+        tools = sm.get_tools("SHOP")
+
+        expected = {
+            "sell_joker": "joker",
+            "sell_consumable": "consumable",
+        }
+        for tool_name, param_name in expected.items():
+            sell_tool = next(t for t in tools if t["function"]["name"] == tool_name)
+            params = sell_tool["function"]["parameters"]["properties"]
+            required = sell_tool["function"]["parameters"]["required"]
+
+            assert param_name in params
+            assert param_name in required
+            assert "reasoning" in required

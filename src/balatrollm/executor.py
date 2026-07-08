@@ -4,14 +4,54 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from balatrobot import BalatroInstance
+import httpx
+from balatrobot import BalatroInstance as _BalatroInstance
 from balatrobot import Config as BalatrobotConfig
 
 from .bot import Bot
 from .config import Config, Task
 
 logger = logging.getLogger(__name__)
+HEALTH_TIMEOUT = 30.0
+
+
+class BalatroInstance(_BalatroInstance):
+    """Balatro instance with a tolerant startup health check."""
+
+    async def _wait_for_health(self, timeout: float = HEALTH_TIMEOUT) -> None:
+        """Wait for health endpoint, retrying through transient invalid responses."""
+        url = f"http://{self._config.host}:{self._config.port}"
+        payload = {"jsonrpc": "2.0", "method": "health", "params": {}, "id": 1}
+        start = asyncio.get_event_loop().time()
+        last_error: str | None = None
+
+        while asyncio.get_event_loop().time() - start < timeout:
+            try:
+                async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
+                    response = await client.post(url, json=payload)
+                    if response.status_code != 200:
+                        last_error = (
+                            f"HTTP {response.status_code}: "
+                            f"{response.text[:300]!r}"
+                        )
+                        await asyncio.sleep(0.5)
+                        continue
+                    data: Any = response.json()
+                    result = data.get("result") if isinstance(data, dict) else None
+                    if isinstance(result, dict) and result.get("status") == "ok":
+                        return
+                    last_error = f"unexpected health response: {data!r}"
+            except (httpx.HTTPError, ValueError, AttributeError) as e:
+                last_error = f"{type(e).__name__}: {e}"
+            await asyncio.sleep(0.5)
+
+        details = f" Last error: {last_error}" if last_error else ""
+        raise RuntimeError(
+            f"Health check failed after {timeout}s on "
+            f"{self._config.host}:{self._config.port}.{details}"
+        )
 
 
 @dataclass

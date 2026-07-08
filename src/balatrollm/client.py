@@ -34,6 +34,7 @@ class BalatroClient:
         self._client = httpx.AsyncClient(
             base_url=f"http://{self.host}:{self.port}",
             timeout=self.timeout,
+            trust_env=False,
         )
         return self
 

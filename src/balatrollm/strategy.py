@@ -8,6 +8,96 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 
 STRATEGIES_DIR = Path(__file__).parent / "strategies"
+SUIT_ORDER: tuple[str, ...] = ("S", "H", "C", "D")
+RANK_ORDER: tuple[str, ...] = (
+    "A",
+    "K",
+    "Q",
+    "J",
+    "T",
+    "9",
+    "8",
+    "7",
+    "6",
+    "5",
+    "4",
+    "3",
+    "2",
+)
+
+
+def _render_counts(
+    counts: dict[str, int], order: tuple[str, ...]
+) -> list[dict[str, int | str]]:
+    """Render ordered non-zero count items."""
+    return [
+        {"name": key, "count": counts[key]}
+        for key in order
+        if counts.get(key, 0) > 0
+    ]
+
+
+def _render_rank_suit_counts(counts: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
+    """Render rank-by-suit counts without exposing deck order."""
+    rows: list[dict[str, Any]] = []
+    for rank in RANK_ORDER:
+        suit_counts = counts[rank]
+        total = sum(suit_counts.values())
+        if total == 0:
+            continue
+        rows.append(
+            {
+                "rank": rank,
+                "total": total,
+                "suits": [
+                    {"name": suit, "count": suit_counts[suit]}
+                    for suit in SUIT_ORDER
+                ],
+            }
+        )
+    return rows
+
+
+def _deck_summary(gamestate: dict[str, Any]) -> dict[str, Any] | None:
+    """Summarize remaining draw deck composition without exposing deck order."""
+    cards_info = gamestate.get("cards")
+    if not isinstance(cards_info, dict):
+        return None
+
+    cards = cards_info.get("cards")
+    if not isinstance(cards, list):
+        return None
+
+    suit_counts: dict[str, int] = {suit: 0 for suit in SUIT_ORDER}
+    rank_counts: dict[str, int] = {rank: 0 for rank in RANK_ORDER}
+    rank_suit_counts: dict[str, dict[str, int]] = {
+        rank: {suit: 0 for suit in SUIT_ORDER} for rank in RANK_ORDER
+    }
+
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        value = card.get("value")
+        if not isinstance(value, dict):
+            continue
+        suit = value.get("suit")
+        rank = value.get("rank")
+        suit_key = suit if isinstance(suit, str) and suit in suit_counts else None
+        rank_key = rank if isinstance(rank, str) and rank in rank_counts else None
+        if suit_key is not None:
+            suit_counts[suit_key] += 1
+        if rank_key is not None:
+            rank_counts[rank_key] += 1
+        if suit_key is not None and rank_key is not None:
+            rank_suit_counts[rank_key][suit_key] += 1
+
+    return {
+        "count": cards_info.get("count", len(cards)),
+        "limit": cards_info.get("limit"),
+        "suits": _render_counts(suit_counts, SUIT_ORDER),
+        "ranks": _render_counts(rank_counts, RANK_ORDER),
+        "composition": _render_rank_suit_counts(rank_suit_counts),
+    }
 
 
 @dataclass(frozen=True)
@@ -122,7 +212,10 @@ class StrategyManager:
             Rendered game state text for LLM context
         """
         template = self.env.get_template("GAMESTATE.md.jinja")
-        return template.render(G=gamestate)
+        return template.render(
+            G=gamestate,
+            D=_deck_summary(gamestate),
+        )
 
     def render_memory(
         self,

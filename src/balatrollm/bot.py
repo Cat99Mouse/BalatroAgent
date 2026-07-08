@@ -24,6 +24,58 @@ from .strategy import StrategyManager
 
 logger = logging.getLogger(__name__)
 
+BUY_TOOL_ALIASES: dict[str, str] = {
+    "buy_card": "card",
+    "buy_voucher": "voucher",
+    "buy_pack": "pack",
+}
+SELL_TOOL_ALIASES: dict[str, str] = {
+    "sell_joker": "joker",
+    "sell_consumable": "consumable",
+}
+REARRANGE_TOOL_ALIASES: dict[str, str] = {
+    "rearrange_hand": "hand",
+    "rearrange_jokers": "jokers",
+    "rearrange_consumables": "consumables",
+}
+MAX_OBSERVATION_CALLS = 2
+OBSERVATION_TOOL_NAMES: set[str] = {"score_candidates"}
+SCORE_CANDIDATES_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "score_candidates",
+        "strict": False,
+        "description": (
+            "Preview candidate card selections using Balatro's in-game hand "
+            "preview. This is read-only and does not play cards. Use it to "
+            "compare several candidate plays before choosing an action. The "
+            "returned preview_score is not a guaranteed final settled score and "
+            "does not include complete joker settlement."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "description": (
+                        "List of up to 10 candidate plays, each as 0-based hand "
+                        "card indices."
+                    ),
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                    },
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Why these candidates should be compared.",
+                },
+            },
+            "required": ["candidates", "reasoning"],
+        },
+    },
+}
+
 
 class BotError(Exception):
     """Base exception for bot errors."""
@@ -243,7 +295,134 @@ class Bot:
             }
         ]
 
-        tools = self.strategy.get_tools(gamestate["state"])
+        state = gamestate["state"]
+        tools = self._get_tools_for_state(state, include_observation=True)
+
+        observation_calls = 0
+        while True:
+            response = await self._call_llm(messages, tools)
+            tool_call = self._first_tool_call(response)
+            fn_name = self._tool_call_name(tool_call)
+
+            if fn_name not in OBSERVATION_TOOL_NAMES:
+                return response
+
+            if observation_calls >= MAX_OBSERVATION_CALLS:
+                return response
+
+            observation_calls += 1
+            tool_result = await self._execute_observation_tool_call(tool_call)
+            logger.info(f"Observation: {fn_name}({tool_result.get('summary', '')})")
+
+            messages = [
+                *messages,
+                self._assistant_tool_call_message(response),
+                {
+                    "role": "tool",
+                    "tool_call_id": getattr(tool_call, "id", ""),
+                    "content": json.dumps(tool_result),
+                },
+            ]
+            tools = self._get_tools_for_state(
+                state,
+                include_observation=observation_calls < MAX_OBSERVATION_CALLS,
+            )
+
+    def _get_tools_for_state(
+        self, state: str, include_observation: bool = False
+    ) -> list[dict[str, Any]]:
+        """Get strategy tools, optionally adding read-only observation tools."""
+        tools = list(self.strategy.get_tools(state))
+        if include_observation and state == "SELECTING_HAND":
+            tools.append(SCORE_CANDIDATES_TOOL)
+        return tools
+
+    def _first_tool_call(self, response: ChatCompletion) -> Any | None:
+        message = response.choices[0].message
+        if not hasattr(message, "tool_calls") or not message.tool_calls:
+            return None
+        return message.tool_calls[0]
+
+    def _tool_call_name(self, tool_call: Any | None) -> str | None:
+        if tool_call is None:
+            return None
+        function_obj = getattr(tool_call, "function", tool_call)
+        return getattr(function_obj, "name", None)
+
+    def _assistant_tool_call_message(
+        self, response: ChatCompletion
+    ) -> dict[str, Any]:
+        message = response.choices[0].message
+        tool_calls = getattr(message, "tool_calls", None) or []
+        return {
+            "role": "assistant",
+            "content": getattr(message, "content", "") or "",
+            "tool_calls": [
+                tool_call.model_dump(exclude_none=True) for tool_call in tool_calls
+            ],
+        }
+
+    async def _execute_observation_tool_call(self, tool_call: Any) -> dict[str, Any]:
+        """Execute a read-only observation tool without updating gameplay history."""
+        assert self._balatro is not None
+
+        function_obj = getattr(tool_call, "function", tool_call)
+        fn_name = getattr(function_obj, "name", None)
+        fn_args_str = getattr(function_obj, "arguments", None)
+
+        if fn_name != "score_candidates":
+            return {"error": f"Unknown observation tool: {fn_name}"}
+        if not fn_args_str:
+            return {"error": "Missing observation tool arguments"}
+
+        try:
+            fn_args = json.loads(fn_args_str)
+        except json.JSONDecodeError as e:
+            return {"error": f"Invalid JSON in observation tool arguments: {e}"}
+
+        candidates = fn_args.get("candidates")
+        if not self._valid_score_candidates(candidates):
+            return {
+                "error": (
+                    "Invalid candidates: expected up to 10 lists of 1-5 unique "
+                    "non-negative integer card indices, e.g. [[0], [0, 1, 2, 3, 4]]"
+                )
+            }
+
+        try:
+            result = await self._balatro.call(
+                "score_candidates", {"candidates": candidates}
+            )
+            count = len(result) if isinstance(result, list) else 1
+            return {
+                "summary": f"{count} candidate previews returned",
+                "previews": result,
+            }
+        except Exception as e:
+            logger.warning(f"Observation tool failed: {e}")
+            return {"error": f"{type(e).__name__}: {e}"}
+
+    def _valid_score_candidates(self, candidates: Any) -> bool:
+        if not isinstance(candidates, list) or not 1 <= len(candidates) <= 10:
+            return False
+        for candidate in candidates:
+            if not isinstance(candidate, list):
+                return False
+            if not 1 <= len(candidate) <= 5:
+                return False
+            if not all(isinstance(index, int) and index >= 0 for index in candidate):
+                return False
+            if len(set(candidate)) != len(candidate):
+                return False
+        return True
+
+    async def _call_llm(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> ChatCompletion:
+        """Call the LLM and record request/response artifacts."""
+        assert self._balatro is not None
+        assert self._llm is not None
+        assert self._collector is not None
 
         request_data = {
             "model": self.task.model,
@@ -268,7 +447,7 @@ class Bot:
                     "screenshot",
                     {"path": str(self._collector.screenshot_dir / f"{custom_id}.png")},
                 )
-            except BalatroError as e:
+            except Exception as e:
                 logger.warning(f"Screenshot failed: {e}")
 
             self._collector.write_response(
@@ -323,6 +502,10 @@ class Bot:
         fn_name = getattr(function_obj, "name", None)
         if not fn_name:
             return await self._handle_error_call("Invalid tool call: missing name")
+        if fn_name in OBSERVATION_TOOL_NAMES:
+            return await self._handle_error_call(
+                f"Observation tool {fn_name} was returned as a gameplay action"
+            )
 
         fn_args_str = getattr(function_obj, "arguments", None)
         if not fn_args_str:
@@ -335,12 +518,49 @@ class Bot:
                 f"Invalid JSON in tool call arguments: {e}"
             )
 
+        history_fn_name = fn_name
+        if fn_name in BUY_TOOL_ALIASES:
+            purchase_key = BUY_TOOL_ALIASES[fn_name]
+            if purchase_key not in fn_args:
+                return await self._handle_error_call(
+                    f"Invalid tool call: {fn_name} missing {purchase_key}"
+                )
+            fn_name = "buy"
+            fn_args = {
+                purchase_key: fn_args[purchase_key],
+                "reasoning": fn_args.get("reasoning", ""),
+            }
+
+        if fn_name in SELL_TOOL_ALIASES:
+            sell_key = SELL_TOOL_ALIASES[fn_name]
+            if sell_key not in fn_args:
+                return await self._handle_error_call(
+                    f"Invalid tool call: {fn_name} missing {sell_key}"
+                )
+            fn_name = "sell"
+            fn_args = {
+                sell_key: fn_args[sell_key],
+                "reasoning": fn_args.get("reasoning", ""),
+            }
+
+        if fn_name in REARRANGE_TOOL_ALIASES:
+            rearrange_key = REARRANGE_TOOL_ALIASES[fn_name]
+            if rearrange_key not in fn_args:
+                return await self._handle_error_call(
+                    f"Invalid tool call: {fn_name} missing {rearrange_key}"
+                )
+            fn_name = "rearrange"
+            fn_args = {
+                rearrange_key: fn_args[rearrange_key],
+                "reasoning": fn_args.get("reasoning", ""),
+            }
+
         ################################################################################
         # Execute tool call
         ################################################################################
 
         try:
-            logger.info(f"Executing: {fn_name}({fn_args})")
+            logger.info(f"Executing: {history_fn_name}({fn_args})")
             gamestate = await self._balatro.call(fn_name, fn_args)
 
             self._collector.reset_failures()
@@ -351,7 +571,7 @@ class Bot:
             self._last_failed_msg = None
             self._collector.record_call("successful")
             self._collector.write_gamestate(gamestate)
-            self._history.append({"method": fn_name, "params": fn_args})
+            self._history.append({"method": history_fn_name, "params": fn_args})
 
             return gamestate
 
