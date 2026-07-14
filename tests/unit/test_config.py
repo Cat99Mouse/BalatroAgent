@@ -74,6 +74,7 @@ class TestParseEnvValue:
             == "https://api.openai.com/v1"
         )
         assert _parse_env_value("api_key", "sk-test") == "sk-test"
+        assert _parse_env_value("mode", "chatbot") == "chatbot"
 
 
 # ============================================================================
@@ -132,15 +133,15 @@ class TestGetModelConfig:
     def test_none_returns_defaults(self) -> None:
         """None input should return default config."""
         config = get_model_config(None)
-        assert "seed" in config
         assert "parallel_tool_calls" in config
         assert config["parallel_tool_calls"] is False
+        assert config["tool_choice"] == "auto"
 
     def test_empty_returns_defaults(self) -> None:
         """Empty dict should return default config."""
         config = get_model_config({})
-        assert "seed" in config
-        assert config["seed"] == 1
+        assert config["tool_choice"] == "auto"
+        assert config["parallel_tool_calls"] is False
 
     def test_user_overrides_applied(self) -> None:
         """User config should override defaults."""
@@ -246,6 +247,12 @@ class TestConfigValidate:
         )
         # Should not raise
         config.validate()
+
+    def test_invalid_mode_raises(self) -> None:
+        """Invalid mode should raise ValueError."""
+        config = Config(model=["openai/gpt-4"], mode="invalid")
+        with pytest.raises(ValueError, match="mode"):
+            config.validate()
 
 
 # ============================================================================
@@ -367,12 +374,14 @@ class TestConfigLoad:
             port=8080,
             base_url="https://test.api/v1",
             api_key="test-key",
+            mode="chatbot",
         )
         config = Config.load(args=args)
         assert config.model == ["openai/gpt-4"]
         assert config.parallel == 2
         assert config.host == "localhost"
         assert config.port == 8080
+        assert config.mode == "chatbot"
 
     def test_load_with_yaml(self, tmp_path: Path) -> None:
         """Loading from YAML file should work."""
@@ -384,10 +393,12 @@ deck: RED
 stake: WHITE
 strategy: default
 parallel: 4
+mode: chatbot
 """)
         config = Config.load(yaml_path=yaml_file)
         assert config.model == ["openai/gpt-4"]
         assert config.parallel == 4
+        assert config.mode == "chatbot"
 
     def test_load_precedence(self, tmp_path: Path) -> None:
         """CLI args should override YAML values."""
@@ -407,6 +418,7 @@ parallel: 2
             port=None,
             base_url=None,
             api_key=None,
+            mode=None,
         )
         config = Config.load(yaml_path=yaml_file, args=args)
         assert config.model == ["openai/gpt-4"]  # From YAML

@@ -8,6 +8,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 
 STRATEGIES_DIR = Path(__file__).parent / "strategies"
+PROMPT_MODES: frozenset[str] = frozenset({"agent", "chatbot"})
 SUIT_ORDER: tuple[str, ...] = ("S", "H", "C", "D")
 RANK_ORDER: tuple[str, ...] = (
     "A",
@@ -140,52 +141,74 @@ class StrategyManifest:
 class StrategyManager:
     """Manages Jinja2 strategy templates for LLM prompts.
 
-    A strategy consists of four files:
+    A strategy profile consists of prompt template files:
     - STRATEGY.md.jinja: High-level strategic guidance
     - GAMESTATE.md.jinja: Current game state rendering
-    - MEMORY.md.jinja: Action history and error context
+    - MEMORY.md.jinja: Action history and error context (agent mode only)
     - TOOLS.json: Tool definitions for each game state
 
     Usage:
-        sm = StrategyManager("default")
+        sm = StrategyManager("default", mode="agent")
         strategy_text = sm.render_strategy(gamestate)
         gamestate_text = sm.render_gamestate(gamestate)
-        memory_text = sm.render_memory(history)
+        memory_text = sm.render_memory(history, global_memory="...")
         tools = sm.get_tools("SELECTING_HAND")
     """
 
-    def __init__(self, name: str, strategies_dir: Path = STRATEGIES_DIR):
+    def __init__(
+        self, name: str, mode: str = "agent", strategies_dir: Path = STRATEGIES_DIR
+    ):
         """Initialize the strategy manager.
 
         Args:
             name: Name of the strategy (subdirectory in strategies_dir)
+            mode: Prompt profile mode ("agent" or "chatbot")
             strategies_dir: Base directory containing strategy folders
 
         Raises:
             FileNotFoundError: If strategy directory or required files don't exist
         """
+        if mode not in PROMPT_MODES:
+            raise ValueError(f"Invalid prompt mode: {mode}. Valid: {PROMPT_MODES}")
+
+        self.name = name
+        self.mode = mode
         self.path = strategies_dir / name
 
         if not self.path.exists():
             raise FileNotFoundError(f"Strategy not found: {name}")
 
-        # Verify required files exist
-        required = [
-            "STRATEGY.md.jinja",
-            "GAMESTATE.md.jinja",
-            "MEMORY.md.jinja",
-            "TOOLS.json",
-        ]
-        missing = [f for f in required if not (self.path / f).exists()]
-        if missing:
-            raise FileNotFoundError(f"Strategy '{name}' missing files: {missing}")
+        self.profile_path = self._resolve_profile_path()
 
-        self.env = Environment(loader=FileSystemLoader(self.path))
+        required = ["STRATEGY.md.jinja", "GAMESTATE.md.jinja"]
+        if mode == "agent":
+            required.append("MEMORY.md.jinja")
+        missing = [f for f in required if not (self.profile_path / f).exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"Strategy '{name}' mode '{mode}' missing files: {missing}"
+            )
+
+        tools_path = self.path / "TOOLS.json"
+        if not tools_path.exists():
+            raise FileNotFoundError(f"Strategy '{name}' missing files: ['TOOLS.json']")
+
+        self.env = Environment(loader=FileSystemLoader(self.profile_path))
         self.env.filters["from_json"] = json.loads
 
-        # Load tools
-        with open(self.path / "TOOLS.json") as f:
+        with tools_path.open() as f:
             self._tools = json.load(f)
+
+    def _resolve_profile_path(self) -> Path:
+        """Resolve the prompt template directory for this strategy/mode."""
+        profile_path = self.path / self.mode
+        if profile_path.exists():
+            return profile_path
+        if self.mode == "agent":
+            return self.path
+        raise FileNotFoundError(
+            f"Strategy '{self.name}' missing required chatbot profile: {profile_path}"
+        )
 
     def render_strategy(self, gamestate: dict[str, Any]) -> str:
         """Render the strategy guidance template.
@@ -209,14 +232,12 @@ class StrategyManager:
             Rendered game state text for LLM context
         """
         template = self.env.get_template("GAMESTATE.md.jinja")
-        return template.render(
-            G=gamestate,
-            D=_deck_summary(gamestate),
-        )
+        return template.render(G=gamestate)
 
     def render_memory(
         self,
         history: list[dict[str, Any]],
+        global_memory: str = "",
         last_error: str | None = None,
         last_failure: str | None = None,
     ) -> str:
@@ -224,15 +245,20 @@ class StrategyManager:
 
         Args:
             history: List of previous actions with method, params, reasoning
+            global_memory: Model-maintained run-level memory snapshot
             last_error: Error message from last invalid LLM response
             last_failure: Error message from last failed API call
 
         Returns:
             Rendered memory context text
         """
+        if self.mode != "agent":
+            raise RuntimeError("StrategyManager.render_memory is only used in agent mode")
+
         template = self.env.get_template("MEMORY.md.jinja")
         return template.render(
             history=history,
+            global_memory=global_memory,
             last_error_call_msg=last_error,
             last_failed_call_msg=last_failure,
         )

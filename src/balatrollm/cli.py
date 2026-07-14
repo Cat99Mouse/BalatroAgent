@@ -36,6 +36,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Execution
     parser.add_argument("--parallel", type=int, help="Concurrent instances")
+    parser.add_argument(
+        "--mode",
+        choices=["agent", "chatbot"],
+        help="Prompt/tool mode: agent enables observation tools, chatbot disables them",
+    )
 
     # Connection
     parser.add_argument("--host", help="BalatroBot host")

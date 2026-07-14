@@ -113,6 +113,7 @@ Common options:
 | `--stake`    | `BALATROLLM_STAKE`    | `WHITE`     | Stake code                   |
 | `--strategy` | `BALATROLLM_STRATEGY` | `default`   | Strategy folder              |
 | `--parallel` | `BALATROLLM_PARALLEL` | `1`         | Concurrent Balatro instances |
+| `--mode`     | `BALATROLLM_MODE`     | `agent`     | `agent` or `chatbot` prompts |
 | `--host`     | `BALATROLLM_HOST`     | `127.0.0.1` | BalatroBot host              |
 | `--port`     | `BALATROLLM_PORT`     | `12346`     | First BalatroBot port        |
 | `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter  | LLM API base URL             |
@@ -134,20 +135,25 @@ Strategies live in `src/balatrollm/strategies/`. Built-in strategies include:
 - `aggressive`
 - `conservative`
 
-Each strategy directory must contain:
+Each strategy directory contains shared action tools plus prompt profiles:
 
 ```text
-STRATEGY.md.jinja
-GAMESTATE.md.jinja
-MEMORY.md.jinja
 TOOLS.json
+agent/
+  STRATEGY.md.jinja
+  GAMESTATE.md.jinja
+  MEMORY.md.jinja
+chatbot/
+  STRATEGY.md.jinja
+  GAMESTATE.md.jinja
 ```
 
 `STRATEGY.md.jinja` describes long-term behavior, `GAMESTATE.md.jinja` renders
-the current state, `MEMORY.md.jinja` keeps recent action and error context, and
-`TOOLS.json` defines valid tool calls for each game state. During hand
-selection, the bot can also expose a read-only `score_candidates` observation
-tool so the model can compare candidate plays before committing to an action.
+the current state, and `TOOLS.json` defines valid action tool calls for each game
+state. In `agent` mode, `MEMORY.md.jinja` keeps recent action and error context,
+and the bot can expose read-only observation tools such as `score_candidates`
+and `observe_remaining_deck`. In `chatbot` mode, observation tools are disabled
+and memory is rendered by a separate minimal 10-action history module.
 
 ### Run Artifacts
 
@@ -156,15 +162,21 @@ Every run is written under `runs/`:
 ```text
 runs/
   latest.json
-  v<version>/<strategy>/<vendor>/<model>/<timestamp>_<deck>_<stake>_<seed>/
-    task.json
-    strategy.json
-    run.log
-    requests.jsonl
-    responses.jsonl
-    gamestates.jsonl
-    stats.json
-    screenshots/
+  agent/
+    latest.json
+    batch.json
+    previous.json
+    <strategy>/<timestamp>_<deck>_<stake>_<seed>_<model>/
+      task.json
+      strategy.json
+      run.log
+      requests.jsonl
+      responses.jsonl
+      gamestates.jsonl
+      stats.json
+      screenshots/
+  chatbot/
+    ...
 ```
 
 These files are useful for replaying prompts, checking model behavior,
@@ -294,6 +306,7 @@ uv run balatrollm
 | `--stake`    | `BALATROLLM_STAKE`    | `WHITE`     | 难度代码            |
 | `--strategy` | `BALATROLLM_STRATEGY` | `default`   | 策略目录            |
 | `--parallel` | `BALATROLLM_PARALLEL` | `1`         | 并发游戏实例数      |
+| `--mode`     | `BALATROLLM_MODE`     | `agent`     | `agent` 或 `chatbot` |
 | `--host`     | `BALATROLLM_HOST`     | `127.0.0.1` | BalatroBot 地址     |
 | `--port`     | `BALATROLLM_PORT`     | `12346`     | 起始端口            |
 | `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter  | LLM API 地址        |
@@ -314,19 +327,24 @@ uv run balatrollm --model openai/gpt-4o --deck RED BLUE --seed AAAAAAA BBBBBBB -
 - `aggressive`
 - `conservative`
 
-每个策略目录至少需要：
+每个策略目录包含共享行动工具和按模式拆分的 prompt profile：
 
 ```text
-STRATEGY.md.jinja
-GAMESTATE.md.jinja
-MEMORY.md.jinja
 TOOLS.json
+agent/
+  STRATEGY.md.jinja
+  GAMESTATE.md.jinja
+  MEMORY.md.jinja
+chatbot/
+  STRATEGY.md.jinja
+  GAMESTATE.md.jinja
 ```
 
 `STRATEGY.md.jinja` 定义长期打法，`GAMESTATE.md.jinja` 负责渲染当前游戏状态，
-`MEMORY.md.jinja` 提供最近动作和错误上下文，`TOOLS.json` 定义不同游戏阶段允许的工具调用。
-在选牌阶段，bot 还可以提供只读的 `score_candidates` 观察工具，让模型在真正出牌前比较
-多个候选打法。
+`TOOLS.json` 定义不同游戏阶段允许的行动工具调用。`agent` 模式下，
+`MEMORY.md.jinja` 提供最近动作和错误上下文，bot 还可以提供 `score_candidates`
+和 `observe_remaining_deck` 等只读观察工具。`chatbot` 模式下，观察工具会被禁用，
+记忆由独立的最近 10 条成功动作模块渲染。
 
 ### 运行产物
 
@@ -335,15 +353,21 @@ TOOLS.json
 ```text
 runs/
   latest.json
-  v<version>/<strategy>/<vendor>/<model>/<timestamp>_<deck>_<stake>_<seed>/
-    task.json
-    strategy.json
-    run.log
-    requests.jsonl
-    responses.jsonl
-    gamestates.jsonl
-    stats.json
-    screenshots/
+  agent/
+    latest.json
+    batch.json
+    previous.json
+    <strategy>/<timestamp>_<deck>_<stake>_<seed>_<model>/
+      task.json
+      strategy.json
+      run.log
+      requests.jsonl
+      responses.jsonl
+      gamestates.jsonl
+      stats.json
+      screenshots/
+  chatbot/
+    ...
 ```
 
 这些文件可以用来复盘 prompt、检查模型输出、定位失败工具调用，以及比较不同策略或模型。

@@ -25,18 +25,9 @@
 - **Stake**: {{ G.stake }}
 {% if G.seed %}- **Seed**: {{ G.seed }}{% endif %}
 
-{% if D %}
-## Remaining Draw Deck Summary
+## Remaining Draw Deck
 
-This is aggregated composition only; draw order is not shown.
-Use remaining-deck composition only as auxiliary context. When playing a blind, prioritize safely beating the current target score; do not sacrifice immediate scoring just to chase future ranks or suits.
-- **Cards remaining**: {{ D.count }}{% if D.limit is not none %}/{{ D.limit }}{% endif %}
-- **Suits**: {% if D.suits %}{% for item in D.suits %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}
-- **Ranks**: {% if D.ranks %}{% for item in D.ranks %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}
-{% if D.composition %}- **Rank-suit composition**:
-{% for row in D.composition %}  - {{ row.rank }}: {% for item in row.suits %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}
-{% endfor %}{% endif %}
-{% endif %}
+Remaining draw deck composition is not shown by default. If it materially affects this decision, call `observe_remaining_deck` to inspect aggregate counts. The observation will not reveal draw order or the next card.
 
 ## Jokers
 
@@ -93,17 +84,9 @@ Here is the list of vouchers redeemed during the run:
 {% endfor -%}
 {% endif -%}
 
-## Poker Hands
+## Poker Hand Run Info
 
-Here is a list of the poker hands and their levels:
-
-{% for name, hand in G.hands.items() -%}
-- **{{ name }}** (Level {{ hand.level }}):
-  - **Chips**: {{ hand.chips }}
-  - **Mult**: {{ hand.mult }}
-  - **Example**: `{% for c in hand.example %}{{ c[0] }}{% if not c[1] %} (not scored){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}`
-  - During this run you have played {{ name }} {{ hand.played }} times, {{ hand.played_this_round }} of which were played this round.
-{% endfor %}
+Poker hand run info is not shown by default. Call `observe_run_info` when hand levels, base chips/mult, examples, or played counts matter.
 
 {% if G.state == "SELECTING_HAND" -%}
 ## Current Hand
@@ -111,7 +94,6 @@ Here is a list of the poker hands and their levels:
 The current card count is {{ G.hand.count }} / {{ G.hand.limit }}
 **CRITICAL LIMIT: You can play or discard MAXIMUM {{ G.hand.highlighted_limit }} cards per action - NEVER MORE THAN {{ G.hand.highlighted_limit }} CARDS (this is an absolute game rule).**
 **SCORING REMINDER**: Extra played cards that are not part of the recognized poker hand are only cycled/discarded. Do not count their chips or card-scoring effects, such as Scary Face or Even Steven, unless they are scoring cards.
-**PREVIEW REMINDER**: If the hand type, scoring cards, or score estimate is uncertain, you may call `score_candidates` when available to compare candidate plays before choosing play or discard.
 
 {% for c in G.hand.cards %}
 {%- if not c.state.hidden %}
@@ -275,7 +257,22 @@ You have opened a booster pack. Choose a card or skip.
 
 # Tools available
 
-You **MUST** use one of the following tools to perform the intended action:
+You may use read-only observation tools before choosing an action. After any observations, you **MUST** use one action tool to perform the intended action.
+
+## Observation tools
+
+- Observe remaining draw deck composition
+  - Function: `observe_remaining_deck`
+  - Parameters:
+    - `reasoning`: (string) Why remaining deck composition is useful now
+- Observe poker hand run info
+  - Function: `observe_run_info`
+  - Parameters:
+    - `reasoning`: (string) Why hand levels, base chips/mult, or played counts are useful now
+
+## Action tools
+
+All gameplay action tools must include `memory_update` in addition to the parameters listed below. `memory_update` is the complete replacement for Global Memory on the next request and must stay under 1200 characters.
 
 {% if G.state == "SELECTING_HAND" -%}
 - Play cards from hand

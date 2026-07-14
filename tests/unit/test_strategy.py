@@ -13,11 +13,23 @@ class TestStrategyManagerInit:
         """Verify default strategy loads successfully."""
         sm = StrategyManager("default")
         assert sm.path.exists()
+        assert sm.profile_path.name == "agent"
+
+    def test_init_with_chatbot_mode(self) -> None:
+        """Verify chatbot profile loads successfully."""
+        sm = StrategyManager("default", mode="chatbot")
+        assert sm.path.exists()
+        assert sm.profile_path.name == "chatbot"
 
     def test_init_with_nonexistent_strategy_raises(self) -> None:
         """Verify FileNotFoundError for missing strategy."""
         with pytest.raises(FileNotFoundError, match="Strategy not found"):
             StrategyManager("nonexistent_strategy_xyz")
+
+    def test_init_with_invalid_mode_raises(self) -> None:
+        """Verify ValueError for unknown prompt mode."""
+        with pytest.raises(ValueError, match="Invalid prompt mode"):
+            StrategyManager("default", mode="invalid")
 
     def test_init_loads_tools(self) -> None:
         """Verify TOOLS.json is loaded."""
@@ -40,7 +52,9 @@ class TestStrategyManagerGetTools:
         tool_names = [t["function"]["name"] for t in tools]
         assert "play" in tool_names
         assert "discard" in tool_names
-        assert "rearrange" in tool_names
+        assert "rearrange_hand" in tool_names
+        assert "rearrange_jokers" in tool_names
+        assert "rearrange_consumables" in tool_names
         assert "sell_joker" in tool_names
         assert "sell_consumable" in tool_names
         assert "use" in tool_names
@@ -58,7 +72,8 @@ class TestStrategyManagerGetTools:
         assert "sell_joker" in tool_names
         assert "sell_consumable" in tool_names
         assert "use" in tool_names
-        assert "rearrange" in tool_names
+        assert "rearrange_jokers" in tool_names
+        assert "rearrange_consumables" in tool_names
 
     def test_get_tools_blind_select(self) -> None:
         """Verify tools for BLIND_SELECT state."""
@@ -129,8 +144,97 @@ class TestRenderMemoryGolden:
 class TestRenderGamestateProperties:
     """Property tests: verify semantic correctness of rendered output."""
 
-    def test_remaining_deck_summary_rendered_without_card_order(self) -> None:
-        """Property: deck observations are aggregate only."""
+    @staticmethod
+    def _minimal_selecting_hand_state() -> dict[str, object]:
+        return {
+            "state": "SELECTING_HAND",
+            "round_num": 1,
+            "ante_num": 1,
+            "money": 4,
+            "deck": "RED",
+            "stake": "WHITE",
+            "seed": "TEST123",
+            "round": {
+                "hands_left": 4,
+                "hands_played": 0,
+                "discards_left": 3,
+                "discards_used": 0,
+                "chips": 0,
+            },
+            "blinds": {
+                "small": {"status": "CURRENT", "score": 300},
+                "big": {"status": "UPCOMING", "score": 450},
+                "boss": {
+                    "name": "The Hook",
+                    "status": "UPCOMING",
+                    "score": 600,
+                    "effect": "Discards 2 random cards per hand",
+                },
+            },
+            "jokers": {"count": 0, "limit": 5, "cards": []},
+            "consumables": {"count": 0, "limit": 2, "cards": []},
+            "used_vouchers": {},
+            "hands": {},
+            "hand": {"count": 0, "limit": 8, "highlighted_limit": 5, "cards": []},
+        }
+
+    def test_agent_gamestate_includes_observation_prompts(self) -> None:
+        """Agent prompt should mention observation tools."""
+        sm = StrategyManager("default", mode="agent")
+        result = sm.render_gamestate(self._minimal_selecting_hand_state())
+
+        assert "Observation tools" in result
+        assert "observe_remaining_deck" in result
+        assert "observe_run_info" in result
+        assert "memory_update" in result
+        assert "score_candidates" not in result
+
+    def test_chatbot_gamestate_omits_observation_prompts(self) -> None:
+        """Chatbot prompt should not mention observation tools."""
+        sm = StrategyManager("default", mode="chatbot")
+        result = sm.render_gamestate(self._minimal_selecting_hand_state())
+
+        assert "Observation tools" not in result
+        assert "observe_remaining_deck" not in result
+        assert "observe_run_info" not in result
+        assert "memory_update" not in result
+        assert "score_candidates" not in result
+        assert "PREVIEW REMINDER" not in result
+        assert "play" in result
+
+    def test_run_info_not_rendered_by_default(self) -> None:
+        """Property: poker hand run info requires explicit agent observation."""
+        gamestate = self._minimal_selecting_hand_state()
+        gamestate["hands"] = {
+            "Pair": {
+                "level": 2,
+                "chips": 25,
+                "mult": 3,
+                "example": [["S_A", True], ["H_A", True]],
+                "played": 4,
+                "played_this_round": 1,
+            }
+        }
+
+        agent_result = StrategyManager("default", mode="agent").render_gamestate(
+            gamestate
+        )
+        chatbot_result = StrategyManager("default", mode="chatbot").render_gamestate(
+            gamestate
+        )
+
+        assert "observe_run_info" in agent_result
+        assert "**Pair** (Level 2)" not in agent_result
+        assert "**Chips**: 25" not in agent_result
+        assert "played Pair 4 times" not in agent_result
+
+        assert "observe_run_info" not in chatbot_result
+        assert "**Pair** (Level 2)" not in chatbot_result
+        assert "**Chips**: 25" not in chatbot_result
+        assert "played Pair 4 times" not in chatbot_result
+
+    def test_remaining_deck_summary_not_rendered_by_default(self) -> None:
+        """Property: remaining deck data requires explicit observation."""
         gamestate = {
             "state": "BLIND_SELECT",
             "round_num": 1,
@@ -179,13 +283,12 @@ class TestRenderGamestateProperties:
 
         result = sm.render_gamestate(gamestate)
 
-        assert "Remaining Draw Deck Summary" in result
-        assert "- **Cards remaining**: 3/52" in result
-        assert "- **Suits**: S=1, H=1, D=1" in result
-        assert "- **Ranks**: A=2, 9=1" in result
-        assert "- **Rank-suit composition**:" in result
-        assert "  - A: S=1, H=1, C=0, D=0" in result
-        assert "  - 9: S=0, H=0, C=0, D=1" in result
+        assert "Remaining Draw Deck Summary" not in result
+        assert "- **Cards remaining**: 3/52" not in result
+        assert "- **Suits**: S=1, H=1, D=1" not in result
+        assert "- **Ranks**: A=2, 9=1" not in result
+        assert "- **Rank-suit composition**:" not in result
+        assert "observe_remaining_deck" in result
         assert "S_A" not in result
         assert "H_A" not in result
         assert "D_9" not in result
@@ -300,6 +403,12 @@ class TestRenderGamestateProperties:
 class TestRenderMemoryProperties:
     """Property tests for memory template."""
 
+    def test_chatbot_mode_does_not_render_agent_memory(self) -> None:
+        """Chatbot mode should not use the agent memory template."""
+        sm = StrategyManager("default", mode="chatbot")
+        with pytest.raises(RuntimeError, match="agent mode"):
+            sm.render_memory(history=[])
+
     def test_history_actions_appear(self) -> None:
         """Property: all history actions appear in memory output."""
         sm = StrategyManager("default")
@@ -318,6 +427,18 @@ class TestRenderMemoryProperties:
             reasoning = str(entry["reasoning"])
             assert method in result
             assert reasoning in result
+
+    def test_global_memory_appears(self) -> None:
+        """Property: agent global memory appears in memory output."""
+        sm = StrategyManager("default")
+        result = sm.render_memory(
+            history=[],
+            global_memory="Focus on pair scaling and protect $25 economy.",
+        )
+
+        assert "Global Memory" in result
+        assert "Focus on pair scaling and protect $25 economy." in result
+        assert "memory_update" in result
 
     def test_error_message_appears(self) -> None:
         """Property: error message appears when provided."""

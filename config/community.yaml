@@ -9,6 +9,10 @@
 
 parallel: 1
 
+# Community runs use normal agent mode unless a benchmark explicitly requests
+# chatbot mode.
+mode: agent
+
 ################################################################################
 # GAME PARAMETERS
 ################################################################################

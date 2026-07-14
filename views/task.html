@@ -142,7 +142,8 @@
         }
 
         // Fetch previous.json for the previous run
-        const previousRes = await fetch('../../runs/previous.json?' + Date.now());
+        const previousPath = latest.previous || 'previous.json';
+        const previousRes = await fetch('../../runs/' + previousPath + '?' + Date.now());
         if (previousRes.ok) {
           const previous = await previousRes.json();
           document.getElementById('previous-section').classList.remove('hidden');
@@ -159,7 +160,8 @@
         }
 
         // Fetch batch.json for best run
-        const batchRes = await fetch('../../runs/batch.json?' + Date.now());
+        const batchPath = latest.batch || 'batch.json';
+        const batchRes = await fetch('../../runs/' + batchPath + '?' + Date.now());
         if (batchRes.ok) {
           const batch = await batchRes.json();
           if (batch.runs_completed > 0 && batch.best_ante > 0) {

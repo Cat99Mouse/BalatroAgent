@@ -1,14 +1,22 @@
 BalatroLLM 启动命令
 
-1. 先检查配置，不启动游戏、不调用模型：
+1. 先检查配置，不启动游戏、不调用模型（默认 agent 模式）：
 
 uv run balatrollm config/local.yaml --dry-run
 
-2. 正式启动自动游戏，并开启观察页面：
+2. 正式启动 agent 模式自动游戏，并开启观察页面：
 
-uv run balatrollm config/local.yaml --views
+uv run balatrollm config/local.yaml --mode agent --views
 
-3. 启动后打开观察页面：
+3. 启动 chatbot 模式自动游戏，并开启观察页面：
+
+uv run balatrollm config/local.yaml --mode chatbot --views
+
+4. 单独预览 chatbot 模式任务，不启动游戏、不调用模型：
+
+uv run balatrollm config/local.yaml --mode chatbot --dry-run
+
+5. 启动后打开观察页面：
 
 http://localhost:12345/views/task.html
 http://localhost:12345/views/responses.html
@@ -17,5 +25,9 @@ http://localhost:12345/views/responses.html
 
 - 需要先配置好 Balatro / BalatroBot。
 - `config/local.yaml` 中需要设置模型、base_url 和 api_key。
+- `--mode agent` 会使用 agent prompt、agent memory，并允许只读观察工具。
+- `--mode chatbot` 会使用 chatbot prompt，禁用观察工具，只保留最近 10 条成功动作记忆。
 - `--dry-run` 只显示将要执行的任务。
 - `--views` 会启动 Balatro 实例、调用 LLM API，并将运行记录写入 `runs/`。
+- agent 模式运行产物写入 `runs/agent/`。
+- chatbot 模式运行产物写入 `runs/chatbot/`。

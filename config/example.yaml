@@ -11,6 +11,11 @@
 # when a worker finishes a run, it picks up the next task from the queue.
 parallel: 1
 
+# Prompt/tool mode:
+#   agent   - default mode with read-only observation tools
+#   chatbot - action tools only, no observation tools, minimal 10-action memory
+mode: agent
+
 ################################################################################
 # GAME PARAMETERS
 # Each parameter accepts a list. The cartesian product of all lists generates

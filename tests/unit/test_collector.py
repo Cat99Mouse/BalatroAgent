@@ -38,14 +38,32 @@ class TestGenerateRunDir:
             mock_datetime.now.return_value.strftime.return_value = "20240101_120000_123"
             result = _generate_run_dir(task, tmp_path)
 
-        # Check path structure: base/runs/v{version}/{strategy}/{vendor}/{model}/{timestamp}_{deck}_{stake}_{seed}
+        # Check path structure:
+        # base/runs/{mode}/{strategy}/{timestamp}_{deck}_{stake}_{seed}_{model}
         assert "runs" in str(result)
-        assert "default" in str(result)  # strategy
-        assert "openai" in str(result)  # vendor
-        assert "gpt-4" in str(result)  # model
+        assert "agent" in result.parts
+        assert result.parent.name == "default"
+        assert "openai_gpt-4" not in result.parts
         assert "RED" in str(result)
         assert "WHITE" in str(result)
         assert "AAAAAAA" in str(result)
+        assert result.name.endswith("_RED_WHITE_AAAAAAA_gpt-4")
+
+    def test_chatbot_mode_path_structure(self, tmp_path: Path) -> None:
+        """Chatbot runs should live under runs/chatbot."""
+        task = Task(
+            model="openai/gpt-4",
+            seed="AAAAAAA",
+            deck="RED",
+            stake="WHITE",
+            strategy="default",
+        )
+        with patch("balatrollm.collector.datetime") as mock_datetime:
+            mock_datetime.now.return_value.strftime.return_value = "20240101_120000_123"
+            result = _generate_run_dir(task, tmp_path, mode="chatbot")
+
+        assert "chatbot" in result.parts
+        assert result.name.endswith("_RED_WHITE_AAAAAAA_gpt-4")
 
     def test_model_with_colon_in_name(self, tmp_path: Path) -> None:
         """Model names with colons should work (e.g., meta-llama/llama-3:70b)."""
@@ -60,11 +78,11 @@ class TestGenerateRunDir:
             mock_datetime.now.return_value.strftime.return_value = "20240101_120000_123"
             result = _generate_run_dir(task, tmp_path)
 
-        assert "meta-llama" in str(result)
-        assert "llama-3:70b" in str(result)
+        assert "meta-llama_llama-3_70b" not in result.parts
+        assert result.name.endswith("_BLUE_RED_TEST_llama-3_70b")
 
-    def test_model_without_vendor_defaults_to_other(self, tmp_path: Path) -> None:
-        """Models without vendor should default to 'other'."""
+    def test_model_without_vendor_has_no_other_layer(self, tmp_path: Path) -> None:
+        """Models without vendor should not create an 'other' directory layer."""
         task = Task(
             model="invalid_model",  # Missing vendor/
             seed="TEST",
@@ -73,8 +91,9 @@ class TestGenerateRunDir:
             strategy="default",
         )
         result = _generate_run_dir(task, tmp_path)
-        assert "other" in str(result)
-        assert "invalid_model" in str(result)
+        assert "other" not in result.parts
+        assert "invalid_model" not in result.parts
+        assert result.name.endswith("_RED_WHITE_TEST_invalid_model")
 
 
 # ============================================================================
@@ -221,6 +240,30 @@ class TestCollectorInit:
         assert data["deck"] == "RED"
         assert data["stake"] == "WHITE"
         assert data["strategy"] == "default"
+        assert data["mode"] == "agent"
+
+    def test_chatbot_mode_writes_mode_paths(self, tmp_path: Path) -> None:
+        """Chatbot mode should write run data under runs/chatbot."""
+        task = Task(
+            model="openai/gpt-4",
+            seed="TEST",
+            deck="RED",
+            stake="WHITE",
+            strategy="default",
+        )
+        collector = Collector(task, tmp_path, mode="chatbot")
+
+        assert "chatbot" in collector.run_dir.parts
+        latest_file = tmp_path / "runs" / "latest.json"
+        mode_latest_file = tmp_path / "runs" / "chatbot" / "latest.json"
+        assert latest_file.exists()
+        assert mode_latest_file.exists()
+
+        latest = json.loads(latest_file.read_text())
+        assert latest["mode"] == "chatbot"
+        assert latest["task"].replace("\\", "/").startswith("chatbot/")
+        assert latest["previous"].replace("\\", "/") == "chatbot/previous.json"
+        assert latest["batch"].replace("\\", "/") == "chatbot/batch.json"
 
     def test_writes_strategy_json(self, tmp_path: Path) -> None:
         """Should write strategy.json on init."""
@@ -454,6 +497,42 @@ class TestCollectorWriteGamestate:
             data = json.loads(f.readline())
 
         assert data == gamestate
+
+
+class TestCollectorWriteGlobalMemoryUpdate:
+    """Tests for write_global_memory_update."""
+
+    def test_writes_to_jsonl(self, tmp_path: Path) -> None:
+        """Should write effective agent global memory snapshots."""
+        task = Task(
+            model="openai/gpt-4",
+            seed="TEST",
+            deck="RED",
+            stake="WHITE",
+            strategy="default",
+        )
+        collector = Collector(task, tmp_path)
+
+        collector.write_global_memory_update(
+            index=2,
+            request="request-00003",
+            method="play",
+            memory="Build around pairs.",
+            truncated=False,
+        )
+
+        memory_file = collector.run_dir / "global_memory.jsonl"
+        assert memory_file.exists()
+        data = json.loads(memory_file.read_text().strip())
+
+        assert data == {
+            "index": 2,
+            "request": "request-00003",
+            "method": "play",
+            "chars": len("Build around pairs."),
+            "truncated": False,
+            "memory": "Build around pairs.",
+        }
 
 
 # ============================================================================

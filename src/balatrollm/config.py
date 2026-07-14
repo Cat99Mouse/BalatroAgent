@@ -41,6 +41,7 @@ ENV_MAP: dict[str, str] = {
     "base_url": "BALATROLLM_BASE_URL",
     "api_key": "BALATROLLM_API_KEY",
     "views": "BALATROLLM_VIEWS",
+    "mode": "BALATROLLM_MODE",
 }
 
 ################################################################################
@@ -49,7 +50,7 @@ ENV_MAP: dict[str, str] = {
 
 BOOL_FIELDS: frozenset[str] = frozenset({"views"})
 LIST_FIELDS: frozenset[str] = frozenset({"model", "seed", "deck", "stake", "strategy"})
-STRING_FIELDS: frozenset[str] = frozenset({"host", "base_url", "api_key"})
+STRING_FIELDS: frozenset[str] = frozenset({"host", "base_url", "api_key", "mode"})
 INT_FIELDS: frozenset[str] = frozenset({"parallel", "port"})
 
 ################################################################################
@@ -65,6 +66,7 @@ VALID_DECKS: frozenset[str] = frozenset(
 VALID_STAKES: frozenset[str] = frozenset(
     { "WHITE", "RED", "GREEN", "BLACK", "BLUE", "PURPLE", "ORANGE", "GOLD" },
 )
+VALID_MODES: frozenset[str] = frozenset({"agent", "chatbot"})
 # fmt: on
 
 
@@ -183,6 +185,7 @@ class Config:
     # Execution
     parallel: int = 1
     views: bool = False
+    mode: str = "agent"
 
     # Connection
     host: str = "127.0.0.1"
@@ -231,6 +234,9 @@ class Config:
 
         if self.port < 1 or self.port > 65535:
             raise ValueError("port must be between 1 and 65535")
+
+        if self.mode not in VALID_MODES:
+            raise ValueError(f"Invalid mode: {self.mode}. Valid: {VALID_MODES}")
 
         for deck in self.deck:
             if deck not in VALID_DECKS:

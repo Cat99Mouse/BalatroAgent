@@ -10,16 +10,25 @@ The strategy system allows for different playing styles - from conservative, fin
 
 ## Strategy Structure
 
-Each strategy is a directory under `src/balatrollm/strategies/` containing exactly 5 **required** files:
+Each strategy is a directory under `src/balatrollm/strategies/` containing
+metadata, shared action tools, and mode-specific prompt profiles:
 
 ```
 src/balatrollm/strategies/{strategy_name}/
 ├── manifest.json          # Strategy metadata
-├── STRATEGY.md.jinja      # Strategy-specific guide and approach
-├── GAMESTATE.md.jinja     # Game state representation template
-├── MEMORY.md.jinja        # Response history tracking template
-└── TOOLS.json             # Strategy-specific function definitions
+├── TOOLS.json             # Shared action tool definitions
+├── agent/
+│   ├── STRATEGY.md.jinja  # Agent guide and approach
+│   ├── GAMESTATE.md.jinja # Agent game state template
+│   └── MEMORY.md.jinja    # Agent memory template
+└── chatbot/
+    ├── STRATEGY.md.jinja  # Chatbot guide and approach
+    └── GAMESTATE.md.jinja # Chatbot game state template
 ```
+
+`agent` mode may expose read-only observation tools and uses `MEMORY.md.jinja`.
+`chatbot` mode disables observation tools and uses a separate built-in memory
+renderer that only includes the last 10 successful actions.
 
 ### Strategy Naming Requirements
 
@@ -79,19 +88,22 @@ The `G` dictionary contains all game state information including:
 - Current hand, jokers, consumables
 - Money, remaining hands/discards
 - Blind information, ante level
-- Deck composition, played cards
+- Deck and stake information, played cards
 - Shop contents (when in SHOP state)
 - And more...
 
 The `G` dictionary is the Game State returned by the [BalatroBot API](https://coder.github.io/balatrobot/api/#gamestate-schema).
 
-`MEMORY.md.jinja`:
+`agent/MEMORY.md.jinja`:
 
 | Variable               | Type          | Description                                          |
 | ---------------------- | ------------- | ---------------------------------------------------- |
 | `history`              | `list[dict]`  | Last 10 actions with `method`, `params`, `reasoning` |
 | `last_error_call_msg`  | `str \| None` | Error message from invalid LLM response              |
 | `last_failed_call_msg` | `str \| None` | Error message from failed API call                   |
+
+`chatbot` mode does not render `MEMORY.md.jinja`; it uses a separate built-in
+memory renderer containing only the last 10 successful actions.
 
 ### Custom Filters
 
@@ -192,10 +204,14 @@ Tools are organized by game state. The `TOOLS.json` file maps each state to its 
 
 | Game State             | Description           | Available Tools                                           |
 | ---------------------- | --------------------- | --------------------------------------------------------- |
-| `SELECTING_HAND`       | Hand selection phase  | `play`, `discard`, `rearrange`, `sell`, `use`             |
-| `SHOP`                 | Shop phase            | `buy`, `reroll`, `next_round`, `sell`, `use`, `rearrange` |
+| `SELECTING_HAND`       | Hand selection phase  | `play`, `discard`, `rearrange_hand`, `rearrange_jokers`, `rearrange_consumables`, `sell_joker`, `sell_consumable`, `use` |
+| `SHOP`                 | Shop phase            | `buy_card`, `buy_voucher`, `buy_pack`, `reroll`, `next_round`, `sell_joker`, `sell_consumable`, `use`, `rearrange_jokers`, `rearrange_consumables` |
 | `BLIND_SELECT`         | Blind selection phase | `select`, `skip`                                          |
 | `SMODS_BOOSTER_OPENED` | Pack opening phase    | `pack` (select cards or skip)                             |
+
+Observation tools such as `observe_remaining_deck` and `score_candidates` are
+injected by the runtime in `agent` mode. They are not defined in `TOOLS.json`
+and are not available in `chatbot` mode.
 
 !!! note "BLIND_SELECT and ROUND_EVAL Behavior"
 
@@ -212,18 +228,25 @@ Tools are organized by game state. The `TOOLS.json` file maps each state to its 
 
 - `play`: Play selected cards as a poker hand
 - `discard`: Discard selected cards
-- `rearrange`: Reorder cards in hand or jokers
-- `sell`: Sell a joker or consumable for money
+- `rearrange_hand`: Reorder cards in hand
+- `rearrange_jokers`: Reorder jokers
+- `rearrange_consumables`: Reorder consumables
+- `sell_joker`: Sell a joker for money
+- `sell_consumable`: Sell a consumable for money
 - `use`: Use a Tarot/Planet/Spectral card
 
 **SHOP phase:**
 
-- `buy`: Purchase a card, joker, or pack
+- `buy_card`: Purchase a shop card
+- `buy_voucher`: Purchase a voucher
+- `buy_pack`: Purchase and open a booster pack
 - `reroll`: Reroll the shop
 - `next_round`: Proceed to next round
-- `sell`: Sell a joker or consumable
+- `sell_joker`: Sell a joker
+- `sell_consumable`: Sell a consumable
 - `use`: Use a consumable
-- `rearrange`: Reorder jokers
+- `rearrange_jokers`: Reorder jokers
+- `rearrange_consumables`: Reorder consumables
 
 **BLIND_SELECT phase:**
 
@@ -236,7 +259,10 @@ BalatroLLM performs **two-stage validation** when loading strategies:
 
 1. **Template Validation** (via `StrategyManager`):
 
-    - Verifies all 4 template files exist (STRATEGY.md.jinja, GAMESTATE.md.jinja, MEMORY.md.jinja, TOOLS.json)
+    - Verifies the selected prompt profile exists
+    - Verifies `STRATEGY.md.jinja` and `GAMESTATE.md.jinja` exist for the selected mode
+    - Verifies `MEMORY.md.jinja` exists for `agent` mode
+    - Verifies root `TOOLS.json` exists
     - Raises `FileNotFoundError` if any template file is missing
 
 2. **Metadata Validation** (via `StrategyManifest`):
@@ -262,13 +288,15 @@ mkdir src/balatrollm/strategies/your_strategy_name
 
 ### 3. Create Required Files
 
-Create all 5 required files using existing strategies as templates:
+Create the required files using existing strategies as templates:
 
 1. **manifest.json**: Define metadata
-2. **STRATEGY.md.jinja**: Define strategy philosophy and approach
-3. **GAMESTATE.md.jinja**: Format game state presentation
-4. **MEMORY.md.jinja**: Format response history
-5. **TOOLS.json**: Define available functions (usually copied from existing strategies)
+2. **TOOLS.json**: Define available action tools (usually copied from existing strategies)
+3. **agent/STRATEGY.md.jinja**: Define agent strategy philosophy and approach
+4. **agent/GAMESTATE.md.jinja**: Format agent game state presentation
+5. **agent/MEMORY.md.jinja**: Format agent response history
+6. **chatbot/STRATEGY.md.jinja**: Define chatbot strategy philosophy and approach
+7. **chatbot/GAMESTATE.md.jinja**: Format chatbot game state presentation
 
 ### 4. Test Locally
 

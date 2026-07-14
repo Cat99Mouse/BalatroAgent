@@ -119,10 +119,14 @@ src/balatrollm/
 └── strategies/      # Strategy templates
     └── default/
         ├── manifest.json         # Strategy metadata
-        ├── STRATEGY.md.jinja     # Game rules and tactics
-        ├── GAMESTATE.md.jinja    # Current state template
-        ├── MEMORY.md.jinja       # Action history template
-        └── TOOLS.json            # Function calling tools
+        ├── TOOLS.json            # Action tools
+        ├── agent/
+        │   ├── STRATEGY.md.jinja # Agent game rules and tactics
+        │   ├── GAMESTATE.md.jinja # Agent current state template
+        │   └── MEMORY.md.jinja   # Agent action history template
+        └── chatbot/
+            ├── STRATEGY.md.jinja # Chatbot game rules and tactics
+            └── GAMESTATE.md.jinja # Chatbot current state template
 ```
 
 ## Code Quality

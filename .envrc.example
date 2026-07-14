@@ -35,6 +35,7 @@
 
 # Execution.
 # export BALATROLLM_PARALLEL=1 # default: 1
+# export BALATROLLM_MODE="agent" # default: agent (agent|chatbot)
 
 # BalatroBot connection settings (used by balatrollm to connect to instances).
 # export BALATROLLM_HOST="127.0.0.1" # default: 127.0.0.1

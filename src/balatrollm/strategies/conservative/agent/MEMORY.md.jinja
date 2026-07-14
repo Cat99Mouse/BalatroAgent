@@ -1,12 +1,21 @@
 # Memory & Previous Actions
 
+## Global Memory
+{% if global_memory %}
+{{ global_memory }}
+{% else %}
+No global memory yet.
+{% endif %}
+
+When you take a gameplay action, include `memory_update` in the tool arguments. Treat it as the complete replacement for Global Memory on the next request. Keep it under 1200 characters and preserve only durable run-level strategy: build direction, joker/deck synergies, boss risks, economy priorities, and plan changes. Do not store obvious facts already visible in the current game state.
+
 {% if history %}
 ## Recent Decision History
 
 Here is a list of your recent decisions (from oldest to newest):
 {% set max_history = 10 if history|length > 10 else history|length %}
 {% for entry in history[-max_history:] %}
-**{{ loop.index }}.** `{{ entry.method }}({{ entry.params }})` - {{ entry.reasoning }}
+**{{ loop.index }}.** `{{ entry.method }}({{ entry.params }})`{% if entry.reasoning or entry.params.reasoning %} - {{ entry.reasoning or entry.params.reasoning }}{% endif %}
 {% endfor %}
 {% endif %}
 

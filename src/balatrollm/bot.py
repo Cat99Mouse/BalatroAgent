@@ -4,12 +4,14 @@ import asyncio
 import json
 import logging
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import httpx
 from openai.types.chat import ChatCompletion
 
+from .chatbot_memory import ChatbotMemory
 from .client import BalatroClient, BalatroError
 from .collector import (
     ChatCompletionError,
@@ -20,7 +22,7 @@ from .collector import (
 )
 from .config import Config, Task, get_model_config
 from .llm import LLMClient, LLMClientError, LLMTimeoutError
-from .strategy import StrategyManager
+from .strategy import StrategyManager, _deck_summary
 
 logger = logging.getLogger(__name__)
 
@@ -39,44 +41,61 @@ REARRANGE_TOOL_ALIASES: dict[str, str] = {
     "rearrange_consumables": "consumables",
 }
 MAX_OBSERVATION_CALLS = 2
-OBSERVATION_TOOL_NAMES: set[str] = {"score_candidates"}
-SCORE_CANDIDATES_TOOL: dict[str, Any] = {
+MAX_GLOBAL_MEMORY_CHARS = 1200
+MEMORY_UPDATE_FIELD = "memory_update"
+OBSERVATION_TOOL_NAMES: set[str] = {"observe_remaining_deck", "observe_run_info"}
+MEMORY_UPDATE_TOOL_PROPERTY: dict[str, Any] = {
+    "type": "string",
+    "maxLength": MAX_GLOBAL_MEMORY_CHARS,
+    "description": (
+        "Complete replacement for the agent's run-level global memory after this "
+        "successful action. Keep it concise, durable, and under 1200 characters."
+    ),
+}
+OBSERVE_REMAINING_DECK_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
-        "name": "score_candidates",
+        "name": "observe_remaining_deck",
         "strict": False,
         "description": (
-            "Preview candidate card selections using Balatro's in-game hand "
-            "preview. This is read-only and does not play cards. Use it to "
-            "compare several candidate plays before choosing an action. The "
-            "returned preview_score is not a guaranteed final settled score and "
-            "does not include complete joker settlement."
+            "Observe the remaining draw deck as aggregate counts only. This is "
+            "read-only and never reveals draw order or the next card. Use it "
+            "only when deck composition materially affects the current decision."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "candidates": {
-                    "type": "array",
-                    "description": (
-                        "List of up to 10 candidate plays, each as 0-based hand "
-                        "card indices."
-                    ),
-                    "items": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                    },
-                },
                 "reasoning": {
                     "type": "string",
-                    "description": "Why these candidates should be compared.",
-                },
+                    "description": "Why remaining deck composition is useful now.",
+                }
             },
-            "required": ["candidates", "reasoning"],
+            "required": ["reasoning"],
         },
     },
 }
-
-
+OBSERVE_RUN_INFO_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "observe_run_info",
+        "strict": False,
+        "description": (
+            "Observe current poker hand run info: hand levels, base chips, base "
+            "mult, examples, and played counts. This is read-only and uses the "
+            "current game state already available to the bot."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reasoning": {
+                    "type": "string",
+                    "description": "Why poker hand run info is useful now.",
+                }
+            },
+            "required": ["reasoning"],
+        },
+    },
+}
 class BotError(Exception):
     """Base exception for bot errors."""
 
@@ -91,7 +110,8 @@ class Bot:
         self.config = config
         self.port = port if port is not None else config.port
         self.model_config = get_model_config(config.model_config)
-        self.strategy = StrategyManager(task.strategy)
+        self.strategy = StrategyManager(task.strategy, mode=config.mode)
+        self._chatbot_memory = ChatbotMemory()
 
         self._balatro: BalatroClient | None = None
         self._llm: LLMClient | None = None
@@ -99,6 +119,8 @@ class Bot:
 
         self._last_error_msg: str | None = None
         self._last_failed_msg: str | None = None
+        self._global_memory: str = ""
+        self._last_request_custom_id: str | None = None
         self._history: list[dict[str, Any]] = []
 
         # Finish reason tracking
@@ -191,7 +213,7 @@ class Bot:
             self._finish_reason = "connection_abort"
             raise BotError(f"Failed to connect to Balatro: {e}") from e
 
-        self._collector = Collector(self.task, runs_dir)
+        self._collector = Collector(self.task, runs_dir, mode=self.config.mode)
         self._setup_file_logging()
 
         logger.info("Starting game")
@@ -274,11 +296,15 @@ class Bot:
 
         strategy_content = self.strategy.render_strategy(gamestate)
         gamestate_content = self.strategy.render_gamestate(gamestate)
-        memory_content = self.strategy.render_memory(
-            history=self._history[-10:],
-            last_error=self._last_error_msg,
-            last_failure=self._last_failed_msg,
-        )
+        if self.config.mode == "chatbot":
+            memory_content = self._chatbot_memory.render(self._history)
+        else:
+            memory_content = self.strategy.render_memory(
+                history=self._history[-10:],
+                global_memory=self._global_memory,
+                last_error=self._last_error_msg,
+                last_failure=self._last_failed_msg,
+            )
 
         messages = [
             {
@@ -296,7 +322,10 @@ class Bot:
         ]
 
         state = gamestate["state"]
-        tools = self._get_tools_for_state(state, include_observation=True)
+        observation_enabled = self.config.mode == "agent"
+        tools = self._get_tools_for_state(
+            state, include_observation=observation_enabled
+        )
 
         observation_calls = 0
         while True:
@@ -304,14 +333,16 @@ class Bot:
             tool_call = self._first_tool_call(response)
             fn_name = self._tool_call_name(tool_call)
 
-            if fn_name not in OBSERVATION_TOOL_NAMES:
+            if fn_name not in OBSERVATION_TOOL_NAMES or not observation_enabled:
                 return response
 
             if observation_calls >= MAX_OBSERVATION_CALLS:
                 return response
 
             observation_calls += 1
-            tool_result = await self._execute_observation_tool_call(tool_call)
+            tool_result = await self._execute_observation_tool_call(
+                tool_call, gamestate
+            )
             logger.info(f"Observation: {fn_name}({tool_result.get('summary', '')})")
 
             messages = [
@@ -325,17 +356,39 @@ class Bot:
             ]
             tools = self._get_tools_for_state(
                 state,
-                include_observation=observation_calls < MAX_OBSERVATION_CALLS,
+                include_observation=(
+                    observation_enabled and observation_calls < MAX_OBSERVATION_CALLS
+                ),
             )
 
     def _get_tools_for_state(
         self, state: str, include_observation: bool = False
     ) -> list[dict[str, Any]]:
         """Get strategy tools, optionally adding read-only observation tools."""
-        tools = list(self.strategy.get_tools(state))
-        if include_observation and state == "SELECTING_HAND":
-            tools.append(SCORE_CANDIDATES_TOOL)
+        tools = deepcopy(self.strategy.get_tools(state))
+        if self.config.mode == "agent":
+            self._add_agent_memory_update_to_tools(tools)
+        if include_observation and self.config.mode == "agent":
+            tools.append(OBSERVE_REMAINING_DECK_TOOL)
+            tools.append(OBSERVE_RUN_INFO_TOOL)
         return tools
+
+    def _add_agent_memory_update_to_tools(self, tools: list[dict[str, Any]]) -> None:
+        """Require memory_update on agent action tools without mutating strategy data."""
+        for tool in tools:
+            function = tool.get("function")
+            if not isinstance(function, dict):
+                continue
+            parameters = function.get("parameters")
+            if not isinstance(parameters, dict):
+                continue
+            properties = parameters.setdefault("properties", {})
+            if not isinstance(properties, dict):
+                continue
+            properties[MEMORY_UPDATE_FIELD] = deepcopy(MEMORY_UPDATE_TOOL_PROPERTY)
+            required = parameters.setdefault("required", [])
+            if isinstance(required, list) and MEMORY_UPDATE_FIELD not in required:
+                required.append(MEMORY_UPDATE_FIELD)
 
     def _first_tool_call(self, response: ChatCompletion) -> Any | None:
         message = response.choices[0].message
@@ -360,59 +413,86 @@ class Bot:
             ],
         }
 
-    async def _execute_observation_tool_call(self, tool_call: Any) -> dict[str, Any]:
+    async def _execute_observation_tool_call(
+        self, tool_call: Any, gamestate: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Execute a read-only observation tool without updating gameplay history."""
-        assert self._balatro is not None
-
         function_obj = getattr(tool_call, "function", tool_call)
         fn_name = getattr(function_obj, "name", None)
         fn_args_str = getattr(function_obj, "arguments", None)
 
-        if fn_name != "score_candidates":
+        if fn_name not in OBSERVATION_TOOL_NAMES:
             return {"error": f"Unknown observation tool: {fn_name}"}
-        if not fn_args_str:
-            return {"error": "Missing observation tool arguments"}
 
         try:
-            fn_args = json.loads(fn_args_str)
+            if fn_args_str:
+                json.loads(fn_args_str)
         except json.JSONDecodeError as e:
             return {"error": f"Invalid JSON in observation tool arguments: {e}"}
 
-        candidates = fn_args.get("candidates")
-        if not self._valid_score_candidates(candidates):
+        if fn_name == "observe_remaining_deck":
+            return await self._observe_remaining_deck()
+        if fn_name == "observe_run_info":
+            return self._observe_run_info(gamestate)
+
+        return {"error": f"Unknown observation tool: {fn_name}"}
+
+    def _observe_run_info(self, gamestate: dict[str, Any] | None) -> dict[str, Any]:
+        """Observe poker hand run info from the current gamestate without RPC."""
+        if gamestate is None:
+            return {"error": "Current game state is unavailable"}
+
+        hands = gamestate.get("hands")
+        if not isinstance(hands, dict):
             return {
-                "error": (
-                    "Invalid candidates: expected up to 10 lists of 1-5 unique "
-                    "non-negative integer card indices, e.g. [[0], [0, 1, 2, 3, 4]]"
-                )
+                "summary": "Poker hand run info is unavailable",
+                "poker_hands": None,
             }
+
+        poker_hands: dict[str, dict[str, Any]] = {}
+        for name, hand in hands.items():
+            if not isinstance(hand, dict):
+                continue
+            poker_hands[str(name)] = {
+                "level": hand.get("level"),
+                "chips": hand.get("chips"),
+                "mult": hand.get("mult"),
+                "example": hand.get("example"),
+                "played": hand.get("played"),
+                "played_this_round": hand.get("played_this_round"),
+            }
+
+        return {
+            "summary": f"{len(poker_hands)} poker hand run info entries returned",
+            "poker_hands": poker_hands,
+        }
+
+    async def _observe_remaining_deck(self) -> dict[str, Any]:
+        """Observe aggregate remaining draw deck composition without card order."""
+        assert self._balatro is not None
 
         try:
-            result = await self._balatro.call(
-                "score_candidates", {"candidates": candidates}
-            )
-            count = len(result) if isinstance(result, list) else 1
-            return {
-                "summary": f"{count} candidate previews returned",
-                "previews": result,
-            }
+            gamestate = await self._balatro.call("gamestate")
+            remaining_deck = _deck_summary(gamestate)
         except Exception as e:
-            logger.warning(f"Observation tool failed: {e}")
+            logger.warning(f"Remaining deck observation failed: {e}")
             return {"error": f"{type(e).__name__}: {e}"}
 
-    def _valid_score_candidates(self, candidates: Any) -> bool:
-        if not isinstance(candidates, list) or not 1 <= len(candidates) <= 10:
-            return False
-        for candidate in candidates:
-            if not isinstance(candidate, list):
-                return False
-            if not 1 <= len(candidate) <= 5:
-                return False
-            if not all(isinstance(index, int) and index >= 0 for index in candidate):
-                return False
-            if len(set(candidate)) != len(candidate):
-                return False
-        return True
+        if remaining_deck is None:
+            return {
+                "summary": "Remaining draw deck data is unavailable",
+                "remaining_deck": None,
+                "draw_order_shown": False,
+            }
+
+        count = remaining_deck.get("count", 0)
+        limit = remaining_deck.get("limit")
+        total = f"{count}/{limit}" if limit is not None else str(count)
+        return {
+            "summary": f"{total} cards remaining; draw order is not shown",
+            "remaining_deck": remaining_deck,
+            "draw_order_shown": False,
+        }
 
     async def _call_llm(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
@@ -430,6 +510,7 @@ class Bot:
         }
 
         custom_id = self._collector.write_request(request_data)
+        self._last_request_custom_id = custom_id
         request_id = str(time.time_ns() // 1_000_000)
 
         try:
@@ -501,6 +582,10 @@ class Bot:
         if not fn_name:
             return await self._handle_error_call("Invalid tool call: missing name")
         if fn_name in OBSERVATION_TOOL_NAMES:
+            if self.config.mode == "chatbot":
+                return await self._handle_error_call(
+                    f"Observation tools are disabled in chatbot mode: {fn_name}"
+                )
             return await self._handle_error_call(
                 f"Observation tool {fn_name} was returned as a gameplay action"
             )
@@ -514,6 +599,22 @@ class Bot:
         except json.JSONDecodeError as e:
             return await self._handle_error_call(
                 f"Invalid JSON in tool call arguments: {e}"
+            )
+        if not isinstance(fn_args, dict):
+            return await self._handle_error_call(
+                "Invalid tool call: arguments must be a JSON object"
+            )
+
+        memory_update_arg = fn_args.pop(MEMORY_UPDATE_FIELD, None)
+        memory_update: str | None = None
+        memory_truncated = False
+        if self.config.mode == "agent":
+            if not isinstance(memory_update_arg, str):
+                return await self._handle_error_call(
+                    f"Invalid tool call: missing {MEMORY_UPDATE_FIELD}"
+                )
+            memory_update, memory_truncated = self._normalize_global_memory(
+                memory_update_arg
             )
 
         history_fn_name = fn_name
@@ -569,7 +670,19 @@ class Bot:
             self._last_failed_msg = None
             self._collector.record_call("successful")
             self._collector.write_gamestate(gamestate)
-            self._history.append({"method": history_fn_name, "params": fn_args})
+            if self.config.mode == "agent" and memory_update is not None:
+                self._record_global_memory_update(
+                    method=history_fn_name,
+                    memory=memory_update,
+                    truncated=memory_truncated,
+                )
+            self._history.append(
+                {
+                    "method": history_fn_name,
+                    "params": fn_args,
+                    "reasoning": fn_args.get("reasoning", ""),
+                }
+            )
 
             return gamestate
 
@@ -584,6 +697,28 @@ class Bot:
             except Exception:
                 self._finish_reason = "connection_abort"
                 raise BotError(f"Game unresponsive after transport error: {e}") from e
+
+    def _normalize_global_memory(self, memory_update: str) -> tuple[str, bool]:
+        """Normalize and cap model-maintained global memory."""
+        memory = memory_update.strip()
+        if len(memory) <= MAX_GLOBAL_MEMORY_CHARS:
+            return memory, False
+        return memory[:MAX_GLOBAL_MEMORY_CHARS], True
+
+    def _record_global_memory_update(
+        self, method: str, memory: str, truncated: bool
+    ) -> None:
+        """Apply and persist a successful agent global memory update."""
+        assert self._collector is not None
+
+        self._global_memory = memory
+        self._collector.write_global_memory_update(
+            index=len(self._history) + 1,
+            request=self._last_request_custom_id,
+            method=method,
+            memory=memory,
+            truncated=truncated,
+        )
 
     async def _handle_error_call(self, msg: str) -> dict[str, Any]:
         """Handle invalid LLM response (no valid tool call)."""

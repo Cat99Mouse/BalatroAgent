@@ -8,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from . import __version__
 from .config import Task
 from .strategy import StrategyManifest
 
@@ -29,27 +28,37 @@ FinishReason = Literal[
 ]
 
 
-def _generate_run_dir(task: Task, base_dir: Path) -> Path:
+def _model_parts(model_id: str) -> tuple[str, str]:
+    """Split a model id into vendor and model path parts."""
+    if "/" in model_id:
+        return model_id.split("/", 1)
+    return "other", model_id
+
+
+def _safe_path_suffix(value: str) -> str:
+    """Return a filesystem-safe suffix for run directory names."""
+    unsafe = '<>:"/\\|?*'
+    result = "".join("_" if char in unsafe else char for char in value)
+    return result.strip().strip(".") or "model"
+
+
+def _generate_run_dir(task: Task, base_dir: Path, mode: str = "agent") -> Path:
     """Generate unique run directory path."""
-    if "/" in task.model:
-        vendor, model = task.model.split("/", 1)
-    else:
-        vendor, model = "other", task.model
+    _, model = _model_parts(task.model)
     dir_name = "_".join(
         [
             datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3],
             task.deck,
             task.stake,
             task.seed,
+            _safe_path_suffix(model),
         ]
     )
     return (
         base_dir
         / "runs"
-        / f"v{__version__}"
+        / mode
         / task.strategy
-        / vendor
-        / model
         / dir_name
     )
 
@@ -153,15 +162,18 @@ class Collector:
     # Class constant for max failures (used by views overlay)
     MAX_CONSECUTIVE_FAILURES = 5
 
-    def __init__(self, task: Task, base_dir: Path) -> None:
+    def __init__(self, task: Task, base_dir: Path, mode: str = "agent") -> None:
         # Create save directories
-        self.run_dir = _generate_run_dir(task, base_dir)
+        self.run_dir = _generate_run_dir(task, base_dir, mode)
         self.screenshot_dir = self.run_dir / "screenshots"
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
 
         self.task = task
+        self.mode = mode
         self._base_dir = base_dir
+        self._runs_dir = self._base_dir / "runs"
+        self._mode_dir = self._runs_dir / mode
         self._request_count = 0
 
         # Call tracking
@@ -181,16 +193,14 @@ class Collector:
         self._total_cost: float = 0.0
 
         # Write task with structured model for benchmark analysis
-        if "/" in task.model:
-            vendor, model_name = task.model.split("/", 1)
-        else:
-            vendor, model_name = "other", task.model
+        vendor, model_name = _model_parts(task.model)
         task_data = {
             "model": {"vendor": vendor, "name": model_name},
             "seed": task.seed,
             "deck": task.deck,
             "stake": task.stake,
             "strategy": task.strategy,
+            "mode": mode,
         }
         manifest = StrategyManifest.from_file(task.strategy)
         with (self.run_dir / "task.json").open("w") as f:
@@ -231,21 +241,22 @@ class Collector:
 
     def _write_latest_json(self) -> None:
         """Write latest.json pointer for overlay."""
-        runs_dir = self._base_dir / "runs"
-        relative_run_path = self.run_dir.relative_to(runs_dir)
-        with (runs_dir / "latest.json").open("w") as f:
-            json.dump(
-                {
-                    "task": str(relative_run_path / "task.json"),
-                    "responses": str(relative_run_path / "responses.jsonl"),
-                    "requests": str(relative_run_path / "requests.jsonl"),
-                    "gamestates": str(relative_run_path / "gamestates.jsonl"),
-                    "consecutive_failures": self._consecutive_failures,
-                    "max_failures": self.MAX_CONSECUTIVE_FAILURES,
-                    "finish_reason": self._finish_reason,
-                },
-                f,
-            )
+        relative_run_path = self.run_dir.relative_to(self._runs_dir)
+        latest = {
+            "mode": self.mode,
+            "task": str(relative_run_path / "task.json"),
+            "responses": str(relative_run_path / "responses.jsonl"),
+            "requests": str(relative_run_path / "requests.jsonl"),
+            "gamestates": str(relative_run_path / "gamestates.jsonl"),
+            "previous": str(Path(self.mode) / "previous.json"),
+            "batch": str(Path(self.mode) / "batch.json"),
+            "consecutive_failures": self._consecutive_failures,
+            "max_failures": self.MAX_CONSECUTIVE_FAILURES,
+            "finish_reason": self._finish_reason,
+        }
+        for latest_path in (self._runs_dir / "latest.json", self._mode_dir / "latest.json"):
+            with latest_path.open("w") as f:
+                json.dump(latest, f)
 
     def write_request(self, body: dict[str, Any]) -> str:
         """Write request to requests.jsonl. Returns custom_id."""
@@ -286,6 +297,27 @@ class Collector:
         with (self.run_dir / "gamestates.jsonl").open("a") as f:
             f.write(json.dumps(gamestate) + "\n")
 
+    def write_global_memory_update(
+        self,
+        *,
+        index: int,
+        request: str | None,
+        method: str,
+        memory: str,
+        truncated: bool,
+    ) -> None:
+        """Write the effective agent global memory snapshot after an action."""
+        entry = {
+            "index": index,
+            "request": request,
+            "method": method,
+            "chars": len(memory),
+            "truncated": truncated,
+            "memory": memory,
+        }
+        with (self.run_dir / "global_memory.jsonl").open("a") as f:
+            f.write(json.dumps(entry) + "\n")
+
     def write_stats(self, finish_reason: FinishReason) -> None:
         """Calculate and write final statistics to stats.json."""
         stats = self._calculate_stats(finish_reason)
@@ -302,7 +334,7 @@ class Collector:
         self, final_ante: int, final_round: int, finish_reason: FinishReason
     ) -> None:
         """Update batch.json with best run info."""
-        batch_path = self._base_dir / "runs" / "batch.json"
+        batch_path = self._mode_dir / "batch.json"
 
         # Load existing or create new
         if batch_path.exists():
@@ -331,10 +363,7 @@ class Collector:
         if final_ante > best_ante or (
             final_ante == best_ante and final_round > best_round
         ):
-            if "/" in self.task.model:
-                vendor, model = self.task.model.split("/", 1)
-            else:
-                vendor, model = "other", self.task.model
+            vendor, model = _model_parts(self.task.model)
             batch["best_ante"] = final_ante
             batch["best_round"] = final_round
             batch["best_vendor"] = vendor
@@ -353,12 +382,10 @@ class Collector:
         self, finish_reason: FinishReason, final_ante: int, final_round: int
     ) -> None:
         """Write previous.json for the completed run."""
-        if "/" in self.task.model:
-            vendor, model = self.task.model.split("/", 1)
-        else:
-            vendor, model = "other", self.task.model
+        vendor, model = _model_parts(self.task.model)
 
         previous = {
+            "mode": self.mode,
             "vendor": vendor,
             "model": model,
             "seed": self.task.seed,
@@ -370,9 +397,7 @@ class Collector:
             "cost": self._total_cost,
             "finish_reason": finish_reason,
         }
-        (self._base_dir / "runs" / "previous.json").write_text(
-            json.dumps(previous, indent=2)
-        )
+        (self._mode_dir / "previous.json").write_text(json.dumps(previous, indent=2))
 
     def _calculate_stats(self, finish_reason: FinishReason) -> Stats:
         """Calculate statistics from collected data."""

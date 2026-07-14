@@ -78,6 +78,7 @@ model_config:
 | `--stake STAKE`       | `BALATROLLM_STAKE`    | `WHITE`                        | Stake code(s)                                       |
 | `--strategy STRATEGY` | `BALATROLLM_STRATEGY` | `default`                      | Strategy name(s)                                    |
 | `--parallel N`        | `BALATROLLM_PARALLEL` | `1`                            | Concurrent game instances                           |
+| `--mode MODE`         | `BALATROLLM_MODE`     | `agent`                        | Prompt/tool mode: `agent` or `chatbot`              |
 | `--host HOST`         | `BALATROLLM_HOST`     | `127.0.0.1`                    | BalatroBot host                                     |
 | `--port PORT`         | `BALATROLLM_PORT`     | `12346`                        | Starting port                                       |
 | `--base-url URL`      | `BALATROLLM_BASE_URL` | `https://openrouter.ai/api/v1` | LLM API base URL                                    |
@@ -88,6 +89,14 @@ model_config:
 !!! note "How Balatro instances are started"
 
     `balatrollm` starts/stops Balatro instances automatically via `balatrobot`. With `--parallel N`, it spawns instances on ports `--port` through `--port + N - 1` (`port..port+parallel-1`).
+
+## Modes
+
+- `agent`: Default mode. Uses the agent prompt profile, agent memory, and
+    read-only observation tools such as `observe_remaining_deck` and
+    `score_candidates`.
+- `chatbot`: Uses the chatbot prompt profile, disables observation tools, and
+    renders only the last 10 successful actions as memory.
     When using `--parallel N`, N workers are spawned. In order to fully utilize you have to have more tasks than workers. Check out th number of tasks that will be created using the `--dry-run` option.
 
 !!! note "Multiple Values"
@@ -157,15 +166,21 @@ For more information about strategies, see the [Strategies documentation](strate
 ```text
 runs/
   latest.json
-  vX.Y.Z/<strategy>/<vendor>/<model>/<timestamp>_<deck>_<stake>_<seed>/
-    task.json
-    strategy.json
-    run.log
-    requests.jsonl
-    responses.jsonl
-    gamestates.jsonl
-    stats.json
-    screenshots/
+  agent/
+    latest.json
+    batch.json
+    previous.json
+    <strategy>/<timestamp>_<deck>_<stake>_<seed>_<model>/
+      task.json
+      strategy.json
+      run.log
+      requests.jsonl
+      responses.jsonl
+      gamestates.jsonl
+      stats.json
+      screenshots/
+  chatbot/
+    ...
 ```
 
 - `task.json` / `strategy.json`: resolved task metadata and the strategy manifest used for the run.
@@ -174,7 +189,8 @@ runs/
 - `stats.json`: aggregated statistics for the run.
 - `screenshots/`: screenshots captured during the run.
 - `run.log`: logs captured during the run.
-- `runs/latest.json`: updated each run; used by the `--views` overlays to locate the latest `task.json` and `responses.jsonl`.
+- `runs/latest.json`: updated each run; used by the `--views` overlays to locate the latest mode-specific files.
+- `runs/<mode>/batch.json` and `runs/<mode>/previous.json`: mode-specific run summaries.
 
 ## BalatroBot Configuration
 

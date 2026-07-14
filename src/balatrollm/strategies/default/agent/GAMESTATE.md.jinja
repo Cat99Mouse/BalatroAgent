@@ -4,7 +4,7 @@
 - **Phase**: Playing Phase (gamestate is SELECTING_HAND)
 - **Round**: {{ G.round_num }}
 - **Ante**: {{ G.ante_num }}/8
-- **Money**: ${{ G.money }}{% if G.money < 25 and G.ante_num >= 2 %} ⚠️ BELOW $25 INTEREST THRESHOLD{% endif %}
+- **Money**: ${{ G.money }}
 - **Hands left**: {{ G.round.hands_left }}/{{ G.round.hands_left + G.round.hands_played }}
 - **Discards left**: {{ G.round.discards_left }}/{{ G.round.discards_left + G.round.discards_used }}
 - **Current Blind**: {% if G.blinds.small.status == "CURRENT" %}Small{% elif G.blinds.big.status == "CURRENT" %}Big{% elif G.blinds.boss.status == "CURRENT" %}Boss ({{ G.blinds.boss.name }}: {{ G.blinds.boss.effect }}){% endif %}
@@ -14,30 +14,20 @@
 - **Phase**: Shop Phase (gamestate is SHOP)
 - **Round**: {{ G.round_num }}
 - **Ante**: {{ G.ante_num }}/8
-- **Money**: ${{ G.money }}{% if G.money < 25 and G.ante_num >= 2 %} ⚠️ BELOW $25 INTEREST THRESHOLD{% endif %}
-- **Interest Earned**: ${{ [G.money // 5, 5] | min }} (cap: $5 at $25+)
+- **Money**: ${{ G.money }}
 {%- elif G.state == "BLIND_SELECT" %}
 - **Phase**: Blind Selection (gamestate is BLIND_SELECT)
 - **Round**: {{ G.round_num }}
 - **Ante**: {{ G.ante_num }}/8
-- **Money**: ${{ G.money }}{% if G.money < 25 and G.ante_num >= 2 %} ⚠️ BELOW $25 INTEREST THRESHOLD{% endif %}
+- **Money**: ${{ G.money }}
 {%- endif %}
 - **Deck**: {{ G.deck }}
 - **Stake**: {{ G.stake }}
 {% if G.seed %}- **Seed**: {{ G.seed }}{% endif %}
 
-{% if D %}
-## Remaining Draw Deck Summary
+## Remaining Draw Deck
 
-This is aggregated composition only; draw order is not shown.
-Use remaining-deck composition only as auxiliary context. When playing a blind, prioritize safely beating the current target score; do not sacrifice immediate scoring just to chase future ranks or suits.
-- **Cards remaining**: {{ D.count }}{% if D.limit is not none %}/{{ D.limit }}{% endif %}
-- **Suits**: {% if D.suits %}{% for item in D.suits %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}
-- **Ranks**: {% if D.ranks %}{% for item in D.ranks %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}
-{% if D.composition %}- **Rank-suit composition**:
-{% for row in D.composition %}  - {{ row.rank }}: {% for item in row.suits %}{{ item.name }}={{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}
-{% endfor %}{% endif %}
-{% endif %}
+Remaining draw deck composition is not shown by default. If it materially affects this decision, call `observe_remaining_deck` to inspect aggregate counts. The observation will not reveal draw order or the next card.
 
 ## Jokers
 
@@ -94,17 +84,9 @@ Here is the list of vouchers redeemed during the run:
 {% endfor -%}
 {% endif -%}
 
-## Poker Hands
+## Poker Hand Run Info
 
-Here is a list of the poker hands and their levels:
-
-{% for name, hand in G.hands.items() -%}
-- **{{ name }}** (Level {{ hand.level }}):
-  - **Chips**: {{ hand.chips }}
-  - **Mult**: {{ hand.mult }}
-  - **Example**: `{% for c in hand.example %}{{ c[0] }}{% if not c[1] %} (not scored){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}`
-  - During this run you have played {{ name }} {{ hand.played }} times, {{ hand.played_this_round }} of which were played this round.
-{% endfor %}
+Poker hand run info is not shown by default. Call `observe_run_info` when hand levels, base chips/mult, examples, or played counts matter.
 
 {% if G.state == "SELECTING_HAND" -%}
 ## Current Hand
@@ -112,7 +94,6 @@ Here is a list of the poker hands and their levels:
 The current card count is {{ G.hand.count }} / {{ G.hand.limit }}
 **CRITICAL LIMIT: You can play or discard MAXIMUM {{ G.hand.highlighted_limit }} cards per action - NEVER MORE THAN {{ G.hand.highlighted_limit }} CARDS (this is an absolute game rule).**
 **SCORING REMINDER**: Extra played cards that are not part of the recognized poker hand are only cycled/discarded. Do not count their chips or card-scoring effects, such as Scary Face or Even Steven, unless they are scoring cards.
-**PREVIEW REMINDER**: If the hand type, scoring cards, or score estimate is uncertain, you may call `score_candidates` when available to compare candidate plays before choosing play or discard.
 
 {% for c in G.hand.cards %}
 {%- if not c.state.hidden %}
@@ -124,7 +105,7 @@ The current card count is {{ G.hand.count }} / {{ G.hand.limit }}
   - **{{ c.modifier.edition }} Edition**
 {%- endif %}
 {%- if c.modifier.enhancement %}
-  - **{{ c.modifier.enhancement }} Enhancement**{% if c.modifier.enhancement == "GLASS" %} ⚠️ RISKY: 1/4 chance to break{% endif %}
+  - **{{ c.modifier.enhancement }} Enhancement**
 {%- endif %}
 {%- if c.modifier.seal %}
   - **{{ c.modifier.seal }} Seal**
@@ -150,7 +131,7 @@ Here are the available cards in the shop:
 {%- if card.set == "JOKER" %}
 - {{ loop.index0 }}: {{ card.label }} ({{ card.value.effect }})
   - **Set**: Joker
-  - **Cost**: ${{ card.cost.buy }}{% if card.cost.buy > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25{% endif %}
+  - **Cost**: ${{ card.cost.buy }}
   - **Sell value**: ${{ card.cost.sell }}
 {%- if card.modifier.edition %}
   - **{{ card.modifier.edition }} Edition**
@@ -160,8 +141,8 @@ Here are the available cards in the shop:
 {%- endif %}
 {%- elif card.set in ["TAROT", "PLANET", "SPECTRAL"] %}
 - {{ loop.index0 }}: {{ card.label }} ({{ card.value.effect }})
-  - **Set**: {{ card.set|title }}{% if card.set == "SPECTRAL" %} ⚠️ RISKY: Spectrals often have destructive effects{% endif %}
-  - **Cost**: ${{ card.cost.buy }}{% if card.cost.buy > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25{% endif %}
+  - **Set**: {{ card.set|title }}
+  - **Cost**: ${{ card.cost.buy }}
   - **Sell value**: ${{ card.cost.sell }}
 {%- if card.state.debuff %}
   - **Debuff**: this card is debuffed
@@ -170,18 +151,18 @@ Here are the available cards in the shop:
 {%- if card.modifier.enhancement == "STONE" %}
 - {{ loop.index0 }}: this is a stone card (no suit and no rank)
   - **Set**: Playing Card
-  - **Cost**: ${{ card.cost.buy }}{% if card.cost.buy > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25{% endif %}
+  - **Cost**: ${{ card.cost.buy }}
   - **Sell value**: ${{ card.cost.sell }}
 {%- else %}
 - {{ loop.index0 }}: {{ card.value.rank }} of {{ card.value.suit }} (`{{ card.key }}`)
   - **Set**: Playing Card
-  - **Cost**: ${{ card.cost.buy }}{% if card.cost.buy > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25{% endif %}
+  - **Cost**: ${{ card.cost.buy }}
   - **Sell value**: ${{ card.cost.sell }}
 {%- if card.modifier.edition %}
   - **{{ card.modifier.edition }} Edition**
 {%- endif %}
 {%- if card.modifier.enhancement %}
-  - **{{ card.modifier.enhancement }} Enhancement**{% if card.modifier.enhancement == "GLASS" %} ⚠️ RISKY{% endif %}
+  - **{{ card.modifier.enhancement }} Enhancement**
 {%- endif %}
 {%- if card.modifier.seal %}
   - **{{ card.modifier.seal }} Seal**
@@ -196,14 +177,14 @@ Here are the available cards in the shop:
 {%- endif %}
 {%- endfor %}
 
-The cost of the reroll is ${{ G.round.reroll_cost }}.{% if G.round.reroll_cost > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25 - avoid rerolling{% endif %}
+The cost of the reroll is ${{ G.round.reroll_cost }}.
 
 {% if G.vouchers.cards %}
 Here are the vouchers that can be redeemed:
 {% for voucher in G.vouchers.cards -%}
 {%- if not voucher.state.hidden %}
 - {{ loop.index0 }}: {{ voucher.label }} ({{ voucher.value.effect }})
-  - **Cost**: ${{ voucher.cost.buy }}{% if voucher.cost.buy > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25{% endif %}
+  - **Cost**: ${{ voucher.cost.buy }}
 {%- else %}
 - {{ loop.index0 }}: the voucher is face down
 {%- endif %}
@@ -216,7 +197,7 @@ Here are the vouchers that can be redeemed:
 {% for pack in G.packs.cards -%}
 - {{ loop.index0 }}: **{{ pack.label }}**
   - **Effect**: {{ pack.value.effect }}
-  - **Cost**: ${{ pack.cost.buy }}{% if pack.cost.buy > G.money - 25 and G.ante_num >= 2 %} ⚠️ Would drop below $25{% endif %}
+  - **Cost**: ${{ pack.cost.buy }}
 {% endfor %}
 {% endif %}
 {%- endif %}
@@ -234,12 +215,12 @@ You have opened a booster pack. Choose a card or skip.
   - **Effect**: {{ card.value.effect }}
   - **Rarity**: {{ card.value.rarity|default('Common') }}
 {% elif card.set in ["TAROT", "PLANET", "SPECTRAL"] %}
-- {{ loop.index0 }}: **{{ card.label }}** ({{ card.set|title }}){% if card.set == "SPECTRAL" %} ⚠️ RISKY{% endif %}
+- {{ loop.index0 }}: **{{ card.label }}** ({{ card.set|title }})
   - **Effect**: {{ card.value.effect }}
 {% if card.value.min_highlighted %}  - **Targets**: {{ card.value.min_highlighted }}-{{ card.value.max_highlighted }} hand cards{% endif %}
 {% elif card.set in ["DEFAULT", "ENHANCED"] %}
 - {{ loop.index0 }}: **{{ card.value.rank }} of {{ card.value.suit }}**
-{% if card.set == "ENHANCED" %}  - **Enhancement**: {{ card.value.enhancement }}{% if card.value.enhancement == "GLASS" %} ⚠️ RISKY{% endif %}{% endif %}
+{% if card.set == "ENHANCED" %}  - **Enhancement**: {{ card.value.enhancement }}{% endif %}
 {% if card.value.edition %}  - **Edition**: {{ card.value.edition }}{% endif %}
 {% if card.value.seal %}  - **Seal**: {{ card.value.seal }}{% endif %}
 {% endif %}
@@ -256,10 +237,6 @@ You have opened a booster pack. Choose a card or skip.
 
 {% if G.state == "BLIND_SELECT" -%}
 ## Blind Selection
-
-{% if G.ante_num <= 3 %}
-**CONSERVATIVE REMINDER**: In early Antes (1-3), ALWAYS select blinds - never skip. You need maximum cash income.
-{% endif %}
 
 ### Small Blind
 - **Status**: {{ G.blinds.small.status }}
@@ -280,7 +257,22 @@ You have opened a booster pack. Choose a card or skip.
 
 # Tools available
 
-You **MUST** use one of the following tools to perform the intended action:
+You may use read-only observation tools before choosing an action. After any observations, you **MUST** use one action tool to perform the intended action.
+
+## Observation tools
+
+- Observe remaining draw deck composition
+  - Function: `observe_remaining_deck`
+  - Parameters:
+    - `reasoning`: (string) Why remaining deck composition is useful now
+- Observe poker hand run info
+  - Function: `observe_run_info`
+  - Parameters:
+    - `reasoning`: (string) Why hand levels, base chips/mult, or played counts are useful now
+
+## Action tools
+
+All gameplay action tools must include `memory_update` in addition to the parameters listed below. `memory_update` is the complete replacement for Global Memory on the next request and must stay under 1200 characters.
 
 {% if G.state == "SELECTING_HAND" -%}
 - Play cards from hand
@@ -363,7 +355,6 @@ You **MUST** use one of the following tools to perform the intended action:
 {% if G.state in ["SELECTING_HAND", "SHOP"] -%}
 - Sell a joker for money
   - Function: `sell_joker`
-  - **CONSERVATIVE WARNING**: Never sell jokers unless absolutely necessary - you lose significant value
   - Parameters:
     - `joker`: (integer) 0-based index of joker to sell
     - `reasoning`: (string) Strategic reasoning for selling
