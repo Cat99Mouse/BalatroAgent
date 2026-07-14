@@ -253,7 +253,9 @@ class StrategyManager:
             Rendered memory context text
         """
         if self.mode != "agent":
-            raise RuntimeError("StrategyManager.render_memory is only used in agent mode")
+            raise RuntimeError(
+                "StrategyManager.render_memory is only used in agent mode"
+            )
 
         template = self.env.get_template("MEMORY.md.jinja")
         return template.render(

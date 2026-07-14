@@ -31,7 +31,8 @@ FinishReason = Literal[
 def _model_parts(model_id: str) -> tuple[str, str]:
     """Split a model id into vendor and model path parts."""
     if "/" in model_id:
-        return model_id.split("/", 1)
+        vendor, model = model_id.split("/", 1)
+        return vendor, model
     return "other", model_id
 
 
@@ -54,13 +55,7 @@ def _generate_run_dir(task: Task, base_dir: Path, mode: str = "agent") -> Path:
             _safe_path_suffix(model),
         ]
     )
-    return (
-        base_dir
-        / "runs"
-        / mode
-        / task.strategy
-        / dir_name
-    )
+    return base_dir / "runs" / mode / task.strategy / dir_name
 
 
 @dataclass
@@ -254,7 +249,10 @@ class Collector:
             "max_failures": self.MAX_CONSECUTIVE_FAILURES,
             "finish_reason": self._finish_reason,
         }
-        for latest_path in (self._runs_dir / "latest.json", self._mode_dir / "latest.json"):
+        for latest_path in (
+            self._runs_dir / "latest.json",
+            self._mode_dir / "latest.json",
+        ):
             with latest_path.open("w") as f:
                 json.dump(latest, f)
 

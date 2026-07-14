@@ -298,20 +298,20 @@ uv run balatrollm
 
 常用参数：
 
-| 参数         | 环境变量              | 默认值      | 作用                |
-| ------------ | --------------------- | ----------- | ------------------- |
-| `--model`    | `BALATROLLM_MODEL`    | 必填        | LLM 模型名          |
-| `--seed`     | `BALATROLLM_SEED`     | `AAAAAAA`   | 游戏种子            |
-| `--deck`     | `BALATROLLM_DECK`     | `RED`       | 牌组代码            |
-| `--stake`    | `BALATROLLM_STAKE`    | `WHITE`     | 难度代码            |
-| `--strategy` | `BALATROLLM_STRATEGY` | `default`   | 策略目录            |
-| `--parallel` | `BALATROLLM_PARALLEL` | `1`         | 并发游戏实例数      |
+| 参数         | 环境变量              | 默认值      | 作用                 |
+| ------------ | --------------------- | ----------- | -------------------- |
+| `--model`    | `BALATROLLM_MODEL`    | 必填        | LLM 模型名           |
+| `--seed`     | `BALATROLLM_SEED`     | `AAAAAAA`   | 游戏种子             |
+| `--deck`     | `BALATROLLM_DECK`     | `RED`       | 牌组代码             |
+| `--stake`    | `BALATROLLM_STAKE`    | `WHITE`     | 难度代码             |
+| `--strategy` | `BALATROLLM_STRATEGY` | `default`   | 策略目录             |
+| `--parallel` | `BALATROLLM_PARALLEL` | `1`         | 并发游戏实例数       |
 | `--mode`     | `BALATROLLM_MODE`     | `agent`     | `agent` 或 `chatbot` |
-| `--host`     | `BALATROLLM_HOST`     | `127.0.0.1` | BalatroBot 地址     |
-| `--port`     | `BALATROLLM_PORT`     | `12346`     | 起始端口            |
-| `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter  | LLM API 地址        |
-| `--api-key`  | `BALATROLLM_API_KEY`  | 未设置      | LLM API key         |
-| `--views`    | `BALATROLLM_VIEWS`    | `0`         | 启动本地 views 服务 |
+| `--host`     | `BALATROLLM_HOST`     | `127.0.0.1` | BalatroBot 地址      |
+| `--port`     | `BALATROLLM_PORT`     | `12346`     | 起始端口             |
+| `--base-url` | `BALATROLLM_BASE_URL` | OpenRouter  | LLM API 地址         |
+| `--api-key`  | `BALATROLLM_API_KEY`  | 未设置      | LLM API key          |
+| `--views`    | `BALATROLLM_VIEWS`    | `0`         | 启动本地 views 服务  |
 
 `model`、`seed`、`deck`、`stake`、`strategy` 都支持多个值，程序会生成笛卡尔积任务：
 

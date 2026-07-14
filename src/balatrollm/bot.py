@@ -96,6 +96,8 @@ OBSERVE_RUN_INFO_TOOL: dict[str, Any] = {
         },
     },
 }
+
+
 class BotError(Exception):
     """Base exception for bot errors."""
 

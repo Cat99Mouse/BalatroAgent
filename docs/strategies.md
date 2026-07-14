@@ -202,12 +202,12 @@ Defines the function calls available to the LLM during different game phases. Th
 
 Tools are organized by game state. The `TOOLS.json` file maps each state to its available tools.
 
-| Game State             | Description           | Available Tools                                           |
-| ---------------------- | --------------------- | --------------------------------------------------------- |
-| `SELECTING_HAND`       | Hand selection phase  | `play`, `discard`, `rearrange_hand`, `rearrange_jokers`, `rearrange_consumables`, `sell_joker`, `sell_consumable`, `use` |
+| Game State             | Description           | Available Tools                                                                                                                                    |
+| ---------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SELECTING_HAND`       | Hand selection phase  | `play`, `discard`, `rearrange_hand`, `rearrange_jokers`, `rearrange_consumables`, `sell_joker`, `sell_consumable`, `use`                           |
 | `SHOP`                 | Shop phase            | `buy_card`, `buy_voucher`, `buy_pack`, `reroll`, `next_round`, `sell_joker`, `sell_consumable`, `use`, `rearrange_jokers`, `rearrange_consumables` |
-| `BLIND_SELECT`         | Blind selection phase | `select`, `skip`                                          |
-| `SMODS_BOOSTER_OPENED` | Pack opening phase    | `pack` (select cards or skip)                             |
+| `BLIND_SELECT`         | Blind selection phase | `select`, `skip`                                                                                                                                   |
+| `SMODS_BOOSTER_OPENED` | Pack opening phase    | `pack` (select cards or skip)                                                                                                                      |
 
 Observation tools such as `observe_remaining_deck` and `score_candidates` are
 injected by the runtime in `agent` mode. They are not defined in `TOOLS.json`
